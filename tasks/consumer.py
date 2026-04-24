@@ -52,7 +52,8 @@ TASK_TIMEOUT = 3600  # 1 hour for all tasks
 # — producing duplicate [RESULT] cards and duplicate downstream artifacts.
 # The dashboard's _launch_klava() takes the same lock to close the
 # dashboard-vs-cron race that the pure cron-vs-cron flock missed.
-# Regression: 2026-04-19 Milan Czerny + ENGY dex_pay duplicate executions.
+# Regression: 2026-04-19 dashboard-vs-cron race produced duplicate
+# [RESULT] cards on the same source GTask.
 CONSUMER_LOCK_PATH = Path("/tmp/klava-consumer.lock")
 
 
@@ -459,6 +460,23 @@ def _check_and_execute_locked() -> dict:
             "source_gtask_id": src,
             "blocking_task_id": peer,
         }
+    # Guard: a task with no id or no title is malformed (created via a buggy
+    # path or hand-edited in GTasks). mark_running would call `gog tasks
+    # update <list> <empty>` and Google rejects that with 400 badRequest,
+    # which propagates as a non-retryable cron failure and trips the
+    # circuit breaker after 3 ticks. Skip and continue so one bad row
+    # can't paralyze the queue.
+    if not task.id or not (task.title or "").strip():
+        log.error(
+            f"Skipping malformed task: id={task.id!r} title={task.title!r} "
+            f"priority={task.priority!r} — needs manual cleanup in GTasks"
+        )
+        return {
+            "action": "idle",
+            "reason": "malformed_task_skipped",
+            "task_id": task.id or "",
+        }
+
     log.info(f"Executing: {task.title} (priority: {task.priority})")
 
     # Mark as running

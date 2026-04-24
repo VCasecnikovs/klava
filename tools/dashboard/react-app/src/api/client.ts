@@ -311,6 +311,25 @@ export const api = {
       client_id?: string;
       error?: string;
     }>,
+  // Google Tasks list discovery + selection — closes the gap where the
+  // Google wizard step authed gog but never picked which list Klava uses.
+  wizardGoogleTasksLists: (account?: string) => {
+    const qs = account ? `?account=${encodeURIComponent(account)}` : '';
+    return apiFetch<{
+      ok: boolean;
+      lists?: { id: string; title: string }[];
+      account?: string;
+      error?: string;
+      hint?: string;
+    }>(`/api/wizard/google-tasks-lists${qs}`);
+  },
+  wizardGoogleTasksListSelect: (name: string, list_id: string) =>
+    apiPost('/api/wizard/google-tasks-list-select', { name, list_id }) as Promise<{
+      ok: boolean;
+      name?: string;
+      list_id?: string;
+      error?: string;
+    }>,
   // .env writer — upsert API keys.
   wizardEnvWrite: (updates: Record<string, string>) =>
     apiPost('/api/wizard/env-write', { updates }) as Promise<{

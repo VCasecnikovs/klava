@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 from unittest.mock import patch, MagicMock
 
+from tasks import snapshot as _snapshot_module
 from tasks.queue import (
     parse_frontmatter,
     build_frontmatter,
@@ -13,6 +14,22 @@ from tasks.queue import (
     get_running,
     PRIORITY_ORDER,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_snapshot(tmp_path, monkeypatch):
+    """Redirect snapshot files to tmp_path so tests never pollute the production
+    snapshot at /tmp/klava-snapshot-<real_list_id>.json.
+
+    Regression: 2026-04-24 — create_task tests mocked _run_gog but NOT
+    _snapshot.apply_local_insert, so every test run inserted phantom tasks
+    (alert-1, new-1, r2, fresh-1 …) into the live snapshot, blocking the
+    consumer with 400 badRequest on every 5-min tick.
+    """
+    monkeypatch.setattr(_snapshot_module, "SNAPSHOT_DIR", tmp_path)
+    _snapshot_module.reset_for_tests()
+    yield
+    _snapshot_module.reset_for_tests()
 
 
 class TestParseFrontmatter:
@@ -917,7 +934,7 @@ class TestConvertInPlace:
     def test_convert_to_proposal_rewrites_title_and_sets_plan(self, mock_gog, monkeypatch):
         from tasks import queue as q
         mock_gog.return_value = ""
-        fake = self._fake_task(title="[RESEARCH] Draft XOV deck")
+        fake = self._fake_task(title="[RESEARCH] Draft Sentinel deck")
         monkeypatch.setattr(q, "list_tasks", lambda *a, **kw: [fake])
         monkeypatch.setattr(q, "_list_id", lambda: "list-x")
         monkeypatch.setattr(q._snapshot, "apply_local_mutation", lambda *a, **kw: None)
@@ -928,7 +945,7 @@ class TestConvertInPlace:
             shape="review",
         )
 
-        assert updated.title == "[PROPOSAL] Draft XOV deck"
+        assert updated.title == "[PROPOSAL] Draft Sentinel deck"
         assert updated.type == "proposal"
         assert updated.proposal_status == "pending"
         assert updated.dispatch == "session"

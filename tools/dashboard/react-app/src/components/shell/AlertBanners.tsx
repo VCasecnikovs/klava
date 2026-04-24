@@ -11,14 +11,40 @@ const TOAST_IDS = {
 // changes, the hash changes and the toast re-shows even if the previous
 // one was dismissed. If the content is identical on the next poll we
 // leave the existing toast alone (no flicker, no zombie re-surface).
+//
+// "Down" only counts services the user actually opted into. The backend
+// marks a service `expected: false` when its required config is empty
+// (e.g. tg-gateway when telegram.bot_token is unset) so users who
+// deliberately skipped the Telegram step in the wizard don't get a
+// permanent toast. We treat missing `expected` as `true` for backwards
+// compat with older API payloads.
+function downServices(data?: DashboardData) {
+  return (data?.services || []).filter(
+    s => !s.running && (s as { expected?: boolean }).expected !== false
+  );
+}
+
 function hashServices(data?: DashboardData): string {
-  const down = (data?.services || []).filter(s => !s.running);
-  return down.map(s => s.label || s.name).sort().join('|');
+  return downServices(data).map(s => s.label || s.name).sort().join('|');
+}
+
+// Single-incident failures (consecutive < CRON_NOISE_THRESHOLD) are
+// suppressed: most self-recover by the next tick and just add noise.
+// The cron-scheduler's circuit breaker only opens at 3, so anything
+// worth acting on still surfaces well before the queue stalls.
+const CRON_NOISE_THRESHOLD = 2;
+
+function failingCronJobs(data?: DashboardData) {
+  return (data?.failing_jobs || []).filter(
+    f => (f.consecutive ?? 0) >= CRON_NOISE_THRESHOLD
+  );
 }
 
 function hashCron(data?: DashboardData): string {
-  const fails = data?.failing_jobs || [];
-  return fails.map(f => `${f.job_id}:${f.consecutive}`).sort().join('|');
+  return failingCronJobs(data)
+    .map(f => `${f.job_id}:${f.consecutive}`)
+    .sort()
+    .join('|');
 }
 
 /**
@@ -42,7 +68,7 @@ export function AlertBanners({ data }: { data?: DashboardData }) {
     }
     if (dismissedRef.current.services === h) return;
 
-    const down = (data?.services || []).filter(s => !s.running);
+    const down = downServices(data);
     toast.error(
       <div>
         <strong>Services down:</strong>{' '}
@@ -66,7 +92,7 @@ export function AlertBanners({ data }: { data?: DashboardData }) {
     }
     if (dismissedRef.current.cron === h) return;
 
-    const fails = data?.failing_jobs || [];
+    const fails = failingCronJobs(data);
     toast.error(
       <div style={{ width: '100%' }}>
         <div

@@ -841,7 +841,7 @@ class TestCollectHeartbeatData:
                 "intake": {
                     "total_new": 15,
                     "stats": {"telegram": 10, "signal": 5},
-                    "details": {"telegram": {"Vox HQ": 5, "Main": 5}, "signal": {"Deepyard": 5}},
+                    "details": {"telegram": {"Acme HQ": 5, "Main": 5}, "signal": {"Inner Circle": 5}},
                 },
                 "duration_seconds": 20,
             },
@@ -1165,7 +1165,7 @@ class TestCollectReplyQueue:
         sources_dir = vg_dir / "data" / "sources"
         sources_dir.mkdir(parents=True)
         tasks = [
-            {"id": "t1", "title": "[SIG] Reply to Lev about pricing", "status": "needsAction", "due": "2026-03-15T00:00:00Z"},
+            {"id": "t1", "title": "[SIG] Reply to Alex about pricing", "status": "needsAction", "due": "2026-03-15T00:00:00Z"},
             {"id": "t2", "title": "[DEAL] Follow up AcmeCorp", "status": "needsAction", "due": "2026-03-20T00:00:00Z"},
             {"id": "t3", "title": "Random task", "status": "completed"},
         ]

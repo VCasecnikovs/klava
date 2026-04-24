@@ -78,8 +78,8 @@
       },
       "execution": {
         "mode": "bash",
-        "command": "__PYTHON_BIN__ __REPO_DIR__/.claude/skills/healthcheck/scripts/observability.py",
-        "timeout_seconds": 120
+        "command": "__PYTHON_BIN__ __REPO_DIR__/gateway/scripts/observability.py --quiet",
+        "timeout_seconds": 60
       },
       "catch_up": {
         "enabled": false,
@@ -107,7 +107,8 @@
     {
       "id": "heartbeat-commit",
       "name": "Git Commit after Heartbeat",
-      "enabled": true,
+      "_disabled_reason": "Targets cron/heartbeat_state.json which is gitignored, so the job is a no-op out of the box. Enable + remove the path from .gitignore if you want auto-snapshot of heartbeat state to git.",
+      "enabled": false,
       "requires_internet": false,
       "schedule": {
         "type": "every",
@@ -115,7 +116,7 @@
       },
       "execution": {
         "mode": "bash",
-        "command": "cd __REPO_DIR__ && git add memory/ && git diff --cached --quiet || git commit -m \"heartbeat: $(date +%Y-%m-%d)\"",
+        "command": "cd __REPO_DIR__ && git add cron/heartbeat_state.json 2>/dev/null; git diff --cached --quiet || git commit -m \"heartbeat: $(date +%Y-%m-%d)\"",
         "timeout_seconds": 30
       }
     },
@@ -130,7 +131,7 @@
       },
       "execution": {
         "mode": "bash",
-        "command": "cd __REPO_DIR__ && git add .claude/CLAUDE.md .claude/skills/ memory/ && git diff --cached --quiet || git commit -m \"reflection: $(date +%Y-%m-%d)\"",
+        "command": "cd __REPO_DIR__ && git add .claude/CLAUDE.md .claude/skills/ 2>/dev/null; git diff --cached --quiet || git commit -m \"reflection: $(date +%Y-%m-%d)\"",
         "timeout_seconds": 30
       }
     },

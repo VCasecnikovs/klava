@@ -68,11 +68,11 @@ class TestIsStale:
 class TestBuildTaskPrompt:
     def test_basic(self):
         task = Task(
-            id="abc", title="Research Microsoft needs",
+            id="abc", title="Research AcmeCorp needs",
             priority="high", body="Check their current AI data requirements",
         )
         prompt = build_task_prompt(task)
-        assert "Research Microsoft needs" in prompt
+        assert "Research AcmeCorp needs" in prompt
         assert "high" in prompt
         assert "Check their current AI data requirements" in prompt
 
@@ -101,7 +101,7 @@ class TestBuildTaskPrompt:
         assert "RESULT" in prompt or "Result card" in prompt
 
     def test_includes_draft_only_guard(self):
-        """Regression: 2026-04-24 Artyom neurologist incident.
+        """Regression: 2026-04-24 Acme neurology dataset incident.
 
         The executor doctrine must carry an explicit draft-only guard so a
         neutral-prefix task (`[REPLY]`, `[OPS]`, `[PREP]`, no prefix) can't
@@ -238,7 +238,7 @@ class TestCheckAndExecute:
 
 
 class TestConsumerDedup:
-    """Regression: 2026-04-19 Milan Czerny + ENGY dex_pay double-execution.
+    """Regression: 2026-04-19 Alex Reed + DexCo dex_pay double-execution.
 
     Two overlapping cron consumer invocations pulled the same upstream
     work within ~48s and ran it end-to-end twice. Two layers protect
@@ -258,10 +258,10 @@ class TestConsumerDedup:
         self, mock_list, mock_exec, mock_mark_run, mock_mark_done,
     ):
         mock_list.return_value = [
-            Task(id="A", title="[ACTION] Milan Czerny followup",
+            Task(id="A", title="[ACTION] Alex Reed followup",
                  status="pending", priority="medium",
                  source_gtask_id="milan-src-001"),
-            Task(id="B", title="[ACTION] Milan Czerny followup",
+            Task(id="B", title="[ACTION] Alex Reed followup",
                  status="pending", priority="medium",
                  source_gtask_id="milan-src-001"),
         ]
@@ -384,7 +384,7 @@ class TestMarkDone:
         from tasks.consumer import mark_done
         task = Task(
             id="gt-action-1",
-            title="[ACTION] Draft Microsoft reply",
+            title="[ACTION] Draft AcmeCorp reply",
             body="## Source GTask\nid: gt-src-9",
             shape="reply",
             mode_tags="deal,microsoft",
@@ -399,7 +399,7 @@ class TestMarkDone:
         mock_result.assert_called_once()
         kwargs = mock_result.call_args.kwargs
         assert kwargs["task_id"] == "gt-action-1"
-        assert kwargs["title"] == "[ACTION] Draft Microsoft reply"
+        assert kwargs["title"] == "[ACTION] Draft AcmeCorp reply"
         assert "Drafted reply" in kwargs["body"]
         assert kwargs["mode_tags"] == ["deal", "microsoft"]
         assert kwargs["session_id"] == "sess-xyz"
@@ -411,7 +411,7 @@ class TestMarkDone:
         from tasks.consumer import mark_done
         task = Task(
             id="gt-research-1",
-            title="[RESEARCH] Plan XOV pitch",
+            title="[RESEARCH] Plan Sentinel pitch",
             body="",
             shape="review",
             mode_tags="deal",
@@ -426,7 +426,7 @@ class TestMarkDone:
         mock_proposal.assert_called_once()
         kwargs = mock_proposal.call_args.kwargs
         assert kwargs["task_id"] == "gt-research-1"
-        assert kwargs["title"] == "[RESEARCH] Plan XOV pitch"
+        assert kwargs["title"] == "[RESEARCH] Plan Sentinel pitch"
         assert "Step 1" in kwargs["plan"]
         assert kwargs["shape"] == "review"
         assert kwargs["mode_tags"] == ["deal"]
@@ -542,8 +542,8 @@ class TestMain:
 
 # Regression: 2026-04-19. Two consumer cron invocations landing in the same
 # window both called list_tasks(), saw the same top-pending row, and raced
-# to mark_running() — producing duplicate [RESULT] cards (Milan Czerny WSJ
-# FOLLOW-UP executed twice) and duplicate [PROPOSAL]/[REFINE] rows (ENGY
+# to mark_running() — producing duplicate [RESULT] cards (Alex Reed WSJ
+# FOLLOW-UP executed twice) and duplicate [PROPOSAL]/[REFINE] rows (DexCo
 # dex_pay x3). The consumer now wraps its critical section in an fcntl
 # flock and walks pending tasks looking for source_gtask_id collisions.
 class TestConsumerLock:

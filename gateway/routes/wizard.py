@@ -648,6 +648,106 @@ def wizard_gog_credentials():
     return jsonify({"ok": True, "client_id": parsed["client_id"]})
 
 
+# ── Google Tasks list selection ───────────────────────────────────────
+#
+# After `gog auth`, the user still needs to pick which Google Tasks list
+# Klava should treat as its queue (and the consumer's source of truth).
+# Without this, gateway/lib/config.py keeps reading the example placeholder
+# `your-google-tasks-list-id` and every /api/klava/tasks request 500s.
+
+@wizard_bp.route("/api/wizard/google-tasks-lists", methods=["GET"])
+def wizard_google_tasks_lists():
+    """Enumerate the user's Google Tasks lists via `gog tasks lists --json`.
+
+    Query: ?account=<email> (falls back to identity.email from config).
+    Returns: {ok, lists: [{id, title}, ...]} or {ok: false, error}.
+    """
+    account = (request.args.get("account") or _cfg.email() or "").strip()
+    if not account:
+        return jsonify({"ok": False, "error": "account email required"}), 400
+
+    bin_path = _cfg.google_cli()
+    if not bin_path or (bin_path != "gog" and not os.path.exists(bin_path)):
+        # google_cli() falls back through ~/bin/gog -> shutil.which -> "gog";
+        # if the result still isn't on disk, the gog CLI isn't installed.
+        if not shutil.which("gog"):
+            return jsonify({
+                "ok": False,
+                "error": "gog CLI not installed",
+                "hint": "Install with `brew install gogcli`, then run the Google sign-in step.",
+            }), 400
+
+    env = dict(os.environ)
+    env.setdefault("GOG_KEYRING_PASSWORD", "klava-default-keyring")
+    try:
+        result = subprocess.run(
+            [bin_path, "-a", account, "tasks", "lists", "--json", "--results-only"],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": f"`{bin_path}` not found"}), 400
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "gog timed out (15s)"}), 504
+
+    if result.returncode != 0:
+        err = (result.stderr or "").strip()[:400] or "gog tasks lists failed"
+        hint = None
+        if "no token" in err.lower() or "not signed" in err.lower():
+            hint = "Run the Google sign-in step first."
+        return jsonify({"ok": False, "error": err, "hint": hint}), 200
+
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as e:
+        return jsonify({"ok": False, "error": f"gog returned non-JSON: {e}"}), 200
+
+    # gog with --results-only on `tasks lists` returns either a list or
+    # an object with `tasklists`. Normalize.
+    raw_lists = payload if isinstance(payload, list) else payload.get("tasklists", [])
+    lists = [
+        {"id": item.get("id"), "title": item.get("title", "")}
+        for item in raw_lists
+        if item.get("id")
+    ]
+    return jsonify({"ok": True, "lists": lists, "account": account})
+
+
+@wizard_bp.route("/api/wizard/google-tasks-list-select", methods=["POST"])
+def wizard_google_tasks_list_select():
+    """Persist the user's chosen Klava list to config.yaml.
+
+    Payload: {name: "Klava", list_id: "Qm5u..."}. Writes
+      tasks.gtasks_list = name
+      integrations.google.tasks_lists = {name: list_id}
+
+    Replaces the entire tasks_lists dict on purpose — the wizard is for
+    the single-list common case. Power users with multiple lists can
+    still edit gateway/config.yaml directly afterwards.
+    """
+    payload = _json()
+    name = (payload.get("name") or "").strip()
+    list_id = (payload.get("list_id") or "").strip()
+    if not name or not list_id:
+        return jsonify({"ok": False, "error": "name and list_id are required"}), 400
+
+    try:
+        path = _cfg.DEFAULT_CONFIG_PATH
+        with open(path) as f:
+            raw = yaml.safe_load(f) or {}
+        raw.setdefault("tasks", {})["gtasks_list"] = name
+        google = raw.setdefault("integrations", {}).setdefault("google", {}) or {}
+        raw["integrations"]["google"] = google
+        google["tasks_lists"] = {name: list_id}
+        with open(path, "w") as f:
+            yaml.safe_dump(raw, f, sort_keys=False, allow_unicode=True)
+        _cfg.reload()
+    except Exception as e:
+        log.exception("google-tasks-list-select failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({"ok": True, "name": name, "list_id": list_id})
+
+
 # ── .env writer (API keys the wizard asks for directly) ───────────────
 
 @wizard_bp.route("/api/wizard/env-write", methods=["POST"])

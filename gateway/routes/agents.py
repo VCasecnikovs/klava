@@ -10,17 +10,25 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify
 
+from lib import config as _cfg
+
 agents_bp = Blueprint('agents', __name__)
 
-SUBAGENT_STATE_FILE = Path.home() / "Documents" / "GitHub" / "claude" / "cron" / "subagents_state.json"
+# Resolve paths through gateway/lib/config.py so this works from any clone
+# location. The previous Path.home() / "Documents/GitHub/claude" assumption
+# broke any user who cloned elsewhere (Tart VMs put the repo at ~/klava).
 SUBAGENT_OUTPUT_DIR = Path("/tmp/claude_subagents")
-CLAUDE_DIR = Path.home() / "Documents" / "GitHub" / "claude"
+
+
+def _subagent_state_file() -> Path:
+    return _cfg.subagents_state_file()
 
 
 def _load_subagent_state():
-    if SUBAGENT_STATE_FILE.exists():
+    state_file = _subagent_state_file()
+    if state_file.exists():
         try:
-            return json.loads(SUBAGENT_STATE_FILE.read_text())
+            return json.loads(state_file.read_text())
         except (json.JSONDecodeError, IOError):
             pass
     return {"active": {}, "pending_announces": [], "last_updated": None}
@@ -77,15 +85,7 @@ def api_agents_list():
         sub = announce.get("subagent", {})
         job_id = announce.get("job_id", "unknown")
         agents.append(_subagent_to_agent(job_id, sub))
-    max_concurrent = 3
-    try:
-        import yaml as _yaml
-        cfg_path = CLAUDE_DIR / "gateway" / "config.yaml"
-        if cfg_path.exists():
-            cfg = _yaml.safe_load(cfg_path.read_text()) or {}
-            max_concurrent = cfg.get("subagents", {}).get("max_concurrent", 3)
-    except Exception:
-        pass
+    max_concurrent = _cfg.load().get("subagents", {}).get("max_concurrent", 3)
     return jsonify({"agents": agents, "max_concurrent": max_concurrent})
 
 

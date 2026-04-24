@@ -26,7 +26,13 @@ if [ -d "$REPO_DIR/.git" ] || [ -f "$REPO_DIR/.git" ]; then
     if [ -f "$REPO_DIR/.gitmodules" ]; then
         echo "[0/8] Initializing git submodules..."
         SUBMODULE_LOG="$(mktemp -t klava-submodule.XXXXXX)"
-        if ! git -C "$REPO_DIR" submodule update --init --recursive 2>&1 | tee "$SUBMODULE_LOG"; then
+
+        # `--force` heals a half-initialized state from a previous failed run
+        # (empty worktree but cached .git/modules/<name>, or user manually
+        # `rm -rf`'d the worktree to retry). Without --force, git sees the
+        # cached metadata and treats the update as a no-op, leaving the
+        # worktree empty and the rest of setup.sh dying six steps later.
+        if ! git -C "$REPO_DIR" submodule update --init --recursive --force 2>&1 | tee "$SUBMODULE_LOG"; then
             echo "" >&2
             echo "ERROR: git submodule update failed." >&2
             if grep -qE "Repository not found|could not read Username|Authentication failed" "$SUBMODULE_LOG"; then
@@ -47,6 +53,39 @@ if [ -d "$REPO_DIR/.git" ] || [ -f "$REPO_DIR/.git" ]; then
             exit 1
         fi
         rm -f "$SUBMODULE_LOG"
+
+        # Verify each submodule's worktree is actually populated. git's
+        # "checked out <sha>" message is not a guarantee — a stale
+        # .git/modules cache plus an empty worktree leaves status at
+        # "-<sha>" (uninitialized) but the update still exits 0. Catch that
+        # here so step 7 doesn't die later with a misleading error.
+        SUB_STATUS="$(git -C "$REPO_DIR" submodule status --recursive)"
+        if printf '%s\n' "$SUB_STATUS" | grep -qE '^-'; then
+            echo "" >&2
+            echo "ERROR: submodule update reported success but at least one submodule" >&2
+            echo "       is still uninitialized (leading '-' in status):" >&2
+            printf '%s\n' "$SUB_STATUS" | grep -E '^-' | sed 's/^/         /' >&2
+            echo "" >&2
+            echo "       This usually means a previous run left .git/modules/<name>" >&2
+            echo "       in a half-broken state. Reset and retry:" >&2
+            echo "         git -C \"$REPO_DIR\" submodule deinit -f --all" >&2
+            echo "         rm -rf \"$REPO_DIR/.git/modules\"" >&2
+            echo "         rm -rf \"$REPO_DIR/vadimgest\"" >&2
+            echo "         ./setup.sh" >&2
+            exit 1
+        fi
+
+        # Belt-and-suspenders: the rest of setup.sh assumes vadimgest's
+        # pyproject.toml is on disk. Check now, not at step 7.
+        if [ ! -f "$REPO_DIR/vadimgest/pyproject.toml" ]; then
+            echo "" >&2
+            echo "ERROR: vadimgest/pyproject.toml missing despite a clean submodule status." >&2
+            echo "       Worktree contents:" >&2
+            ls -la "$REPO_DIR/vadimgest" 2>&1 | sed 's/^/         /' >&2
+            echo "       Submodule status:" >&2
+            printf '%s\n' "$SUB_STATUS" | sed 's/^/         /' >&2
+            exit 1
+        fi
     fi
 fi
 
@@ -94,25 +133,37 @@ detect_python() {
     # Pick the best python3 available. Preference order:
     # 1. $PYTHON env override (explicit)
     # 2. pyenv (user already manages versions)
-    # 3. Brew versioned python3.1x (brew installs python@3.12 as python3.12,
-    #    not linked as plain python3)
-    # 4. command -v python3 (last resort; Apple's 3.9 ends up here on macOS)
+    # 3. Brew versioned python3.13 / 3.12 / 3.11 — these have full wheel
+    #    coverage for our dep tree (cryptography, pynacl, etc.). 3.14 is
+    #    intentionally LAST: as of late 2026 many of our transitive deps
+    #    don't ship 3.14 wheels yet, so pip falls back to source builds
+    #    that need Rust + cc and silently fail mid-install.
+    # 4. command -v python3 (Apple's 3.9 ends up here on macOS — too old)
     PYTHON_BIN=""
     if [ -n "${PYTHON:-}" ]; then
         PYTHON_BIN="$PYTHON"
     elif [ -x "$HOME/.pyenv/shims/python3" ] && [ -n "$(ls "$HOME/.pyenv/versions" 2>/dev/null)" ]; then
         # Resolve shim to the concrete versioned binary so launchd plists
         # point at a stable path (shims depend on cwd + .python-version).
-        PYENV_VER="$(ls -1 "$HOME/.pyenv/versions" | sort -V | tail -1)"
+        # Prefer the latest 3.13.x; fall back to latest overall if 3.13
+        # isn't installed.
+        PYENV_VER="$(ls -1 "$HOME/.pyenv/versions" 2>/dev/null | grep -E '^3\.13\.' | sort -V | tail -1)"
+        if [ -z "$PYENV_VER" ]; then
+            PYENV_VER="$(ls -1 "$HOME/.pyenv/versions" 2>/dev/null | grep -E '^3\.(12|11)\.' | sort -V | tail -1)"
+        fi
+        if [ -z "$PYENV_VER" ]; then
+            PYENV_VER="$(ls -1 "$HOME/.pyenv/versions" 2>/dev/null | sort -V | tail -1)"
+        fi
         PYTHON_BIN="$HOME/.pyenv/versions/$PYENV_VER/bin/python3"
         [ -x "$PYTHON_BIN" ] || PYTHON_BIN=""
     fi
     if [ -z "$PYTHON_BIN" ]; then
         for candidate in \
-            /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 \
-            /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 \
-            /usr/local/bin/python3.14 /usr/local/bin/python3.13 \
-            /usr/local/bin/python3.12 /usr/local/bin/python3.11; do
+            /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 \
+            /opt/homebrew/bin/python3.11 \
+            /usr/local/bin/python3.13 /usr/local/bin/python3.12 \
+            /usr/local/bin/python3.11 \
+            /opt/homebrew/bin/python3.14 /usr/local/bin/python3.14; do
             if [ -x "$candidate" ]; then
                 PYTHON_BIN="$candidate"
                 break
@@ -123,6 +174,14 @@ detect_python() {
         PYTHON_BIN="$(command -v python3 || true)"
     fi
     return 0
+}
+
+python_too_new() {
+    # Returns 0 (true) if PYTHON_BIN is 3.14 or newer. Used to gate the
+    # "install 3.13" warning so people who explicitly opted into 3.14
+    # via $PYTHON aren't blocked.
+    [ -n "$PYTHON_BIN" ] && [ -x "$PYTHON_BIN" ] \
+        && "$PYTHON_BIN" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 14) else 1)' 2>/dev/null
 }
 
 python_is_ok() {
@@ -150,6 +209,47 @@ if ! python_is_ok; then
     fi
     echo "  ✓ Installed Python $("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')" >&2
 fi
+
+# 3.14 wheel-coverage gate. As of late 2026 cryptography / pynacl /
+# tiktoken don't ship 3.14 wheels for darwin-arm64 yet, so pip falls back
+# to source builds that need a working Rust + cc toolchain. On a fresh
+# Mac that's not present and the install fails halfway through, leaving
+# the daemons unable to import their deps.
+#
+# If the only Python we found is 3.14+, try to install python@3.13 via
+# brew and switch to it. Honor an explicit $PYTHON override to let power
+# users opt back into 3.14 when they know what they're doing.
+if [ -z "${PYTHON:-}" ] && python_too_new; then
+    PY_TOO_NEW_VERSION="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
+    echo "" >&2
+    echo "  ⚠ Detected Python $PY_TOO_NEW_VERSION at $PYTHON_BIN." >&2
+    echo "    Several gateway dependencies (cryptography, pynacl, tiktoken)" >&2
+    echo "    don't have 3.14 wheels yet, which forces a source build that" >&2
+    echo "    needs Rust + cc and usually fails on a fresh Mac." >&2
+    echo "    Trying python@3.13 via Homebrew instead..." >&2
+    ensure_brew
+    BREW_BIN="$(find_brew)"
+    if "$BREW_BIN" install python@3.13 >/tmp/klava-brew-python313.log 2>&1; then
+        for candidate in /opt/homebrew/bin/python3.13 /usr/local/bin/python3.13; do
+            if [ -x "$candidate" ]; then
+                PYTHON_BIN="$candidate"
+                break
+            fi
+        done
+        if python_too_new; then
+            echo "    ⚠ brew install python@3.13 reported success but PYTHON_BIN is still 3.14+." >&2
+            echo "      Continuing on $PYTHON_BIN — gateway deps may need source builds." >&2
+        else
+            echo "  ✓ Switched to Python $("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")') at $PYTHON_BIN" >&2
+        fi
+    else
+        echo "    ⚠ brew install python@3.13 failed — see /tmp/klava-brew-python313.log" >&2
+        echo "      Continuing on Python $PY_TOO_NEW_VERSION. If gateway requirements" >&2
+        echo "      install fails later, install Rust (brew install rust) and re-run," >&2
+        echo "      or set PYTHON=/path/to/python3.13 ./setup.sh explicitly." >&2
+    fi
+fi
+
 PYTHON_DIR="$(dirname "$PYTHON_BIN")"
 PY_VERSION="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
 
@@ -179,6 +279,12 @@ if [ -z "$OBSIDIAN_VAULT_RAW" ]; then
 fi
 # Expand leading ~ to $HOME so downstream consumers can use the path literally.
 OBSIDIAN_VAULT="${OBSIDIAN_VAULT_RAW/#\~/$HOME}"
+
+# Ensure the vault directory exists. The cron-scheduler passes it to Claude
+# subagents via --add-dir, which fails when the path is missing. New users
+# without an Obsidian vault still need a placeholder so heartbeat/reflection
+# don't crash on launch.
+mkdir -p "$OBSIDIAN_VAULT" 2>/dev/null || true
 
 echo "=== Claude Agent System Setup ==="
 echo "  Home:           $HOME"
@@ -261,6 +367,69 @@ if [ ! -f "$REPO_DIR/cron/jobs.json" ]; then
     fi
 else
     echo "  cron/jobs.json exists, skipping"
+fi
+
+# 3b. Migration: heal cron/jobs.json generated from a pre-fix template that
+# tried to `git add memory/`. memory/ is gitignored by design, so the chain
+# `git add memory/ && git diff ...` always failed and blocked the commit.
+# Existing installs never re-run step 3 (file present, "skipping"), so the
+# template fix alone doesn't reach them. Patch in-place if we see the
+# broken pattern. Idempotent — second run is a no-op.
+if [ -f "$REPO_DIR/cron/jobs.json" ]; then
+    "$PYTHON_BIN" - "$REPO_DIR/cron/jobs.json" <<'PY'
+import json, sys, os
+path = sys.argv[1]
+with open(path) as f:
+    data = json.load(f)
+fixed = 0
+disabled = 0
+for job in data.get("jobs", []):
+    cmd = job.get("execution", {}).get("command", "")
+
+    # Heal pre-fix templates that tried `git add memory/`. memory/ is
+    # gitignored by design, so the chain `git add memory/ && git diff ...`
+    # always failed and blocked the commit. Existing installs never re-run
+    # step 3 (file present, "skipping"), so the template fix alone doesn't
+    # reach them. Idempotent — second run is a no-op.
+    if job.get("id") == "heartbeat-commit" and "git add memory/" in cmd:
+        job["execution"]["command"] = cmd.replace(
+            "git add memory/ && git diff",
+            "git add cron/heartbeat_state.json 2>/dev/null; git diff",
+        )
+        fixed += 1
+    if job.get("id") == "reflection-commit" and "memory/" in cmd:
+        job["execution"]["command"] = cmd.replace(
+            "git add .claude/CLAUDE.md .claude/skills/ memory/ && git diff",
+            "git add .claude/CLAUDE.md .claude/skills/ 2>/dev/null; git diff",
+        )
+        fixed += 1
+
+    # Disable observability if its target script doesn't ship with the repo.
+    # The healthcheck skill is a personal/external skill; on a fresh clone the
+    # script doesn't exist and the cron run errors out every hour.
+    if job.get("id") == "observability" and job.get("enabled", True):
+        # Extract the path argument from the command and check existence.
+        # Command shape: "<python> <repo>/.claude/skills/healthcheck/scripts/observability.py"
+        target = None
+        for tok in cmd.split():
+            if tok.endswith("observability.py"):
+                target = tok
+                break
+        if target and not os.path.exists(target):
+            job["enabled"] = False
+            job.setdefault("_disabled_reason", "healthcheck skill not present in this clone")
+            disabled += 1
+if fixed or disabled:
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    parts = []
+    if fixed:
+        parts.append(f"healed {fixed} commit-job command(s)")
+    if disabled:
+        parts.append(f"disabled {disabled} job(s) whose script is absent")
+    print(f"  ✓ Migrated cron/jobs.json: {', '.join(parts)}")
+PY
 fi
 
 # 4. Create .env from example

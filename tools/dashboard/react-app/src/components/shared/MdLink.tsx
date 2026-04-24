@@ -1,7 +1,7 @@
 /**
  * MdLink - clickable link that opens an Obsidian markdown file in the Views tab.
  * Usage: <MdLink path="People/John Smith.md" title="John Smith" />
- *        <MdLink path="Deals/Microsoft.md">Deal Note</MdLink>
+ *        <MdLink path="Deals/AcmeCorp.md">Deal Note</MdLink>
  */
 
 interface Props {

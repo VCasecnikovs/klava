@@ -383,20 +383,28 @@ def _check_auth():
 
 
 def _check_rate_limit():
-    """Check rate limit. Returns error response or None if OK."""
+    """Check rate limit. Returns error response or None if OK.
+
+    Uses an in-blueprint store so this works regardless of how
+    webhook-server.py was loaded (file with a hyphen in the name can't
+    be imported as `webhook_server`). Limit is read from config so the
+    user's `webhook.rate_limit_per_hour` still applies.
+    """
     from collections import defaultdict
     identifier = request.remote_addr or "unknown"
-    # Use the parent module's rate limit store
-    import webhook_server
     now = time.time()
     hour_ago = now - 3600
-    webhook_server.rate_limit_store[identifier] = [
-        ts for ts in webhook_server.rate_limit_store[identifier] if ts > hour_ago
-    ]
-    if len(webhook_server.rate_limit_store[identifier]) >= webhook_server.MAX_REQUESTS_PER_HOUR:
-        return jsonify({"error": "Rate limit exceeded", "limit": webhook_server.MAX_REQUESTS_PER_HOUR, "period": "1 hour"}), 429
-    webhook_server.rate_limit_store[identifier].append(now)
+    store = _rate_limit_store
+    store[identifier] = [ts for ts in store[identifier] if ts > hour_ago]
+    cap = int(_cfg.load().get("webhook", {}).get("rate_limit_per_hour", 100))
+    if len(store[identifier]) >= cap:
+        return jsonify({"error": "Rate limit exceeded", "limit": cap, "period": "1 hour"}), 429
+    store[identifier].append(now)
     return None
+
+
+from collections import defaultdict
+_rate_limit_store = defaultdict(list)
 
 
 def _build_webhook_heartbeat_report(run_entry):

@@ -32,8 +32,8 @@ DEFAULT_CONFIG_PATH = Path(
 SECRET_KEYS = frozenset({
     "telegram.bot_token",
     "webhook.token",
-    "integrations.clickhouse.vox.password",
-    "integrations.clickhouse.astrum.password",
+    "integrations.clickhouse.primary.password",
+    "integrations.clickhouse.secondary.password",
     "integrations.grafana.token",
     "integrations.telethon.api_hash",
     "integrations.telethon.session_string",
@@ -250,8 +250,25 @@ def deals_dir() -> Path:
 
 
 def google_cli() -> str:
-    raw = google().get("cli_binary") or "~/bin/gog"
-    return os.path.expanduser(raw)
+    # Resolution order:
+    # 1. Explicit `integrations.google.cli_binary` from config (always wins).
+    # 2. ~/bin/gog if the user installed gog there manually.
+    # 3. shutil.which("gog") — `brew install gogcli` puts it at
+    #    /opt/homebrew/bin/gog, not ~/bin/gog. Without this fallback the
+    #    snapshot loader returns a non-existent path and every dashboard
+    #    /api/klava/tasks request 500s with "No such file or directory".
+    # 4. Bare "gog" so subprocess can produce a clean PATH error.
+    import shutil
+    explicit = (google().get("cli_binary") or "").strip()
+    if explicit:
+        return os.path.expanduser(explicit)
+    home_bin = os.path.expanduser("~/bin/gog")
+    if os.path.exists(home_bin):
+        return home_bin
+    found = shutil.which("gog")
+    if found:
+        return found
+    return "gog"
 
 
 def google_account() -> str:
@@ -294,6 +311,27 @@ def timezone() -> str:
 
 # ── Telegram ──────────────────────────────────────────────────────────
 
+def webhook() -> dict[str, Any]:
+    return load().get("webhook", {})
+
+
+def webhook_token() -> str:
+    return (webhook().get("token") or "").strip()
+
+
+def webhook_require_auth() -> str:
+    """One of "auto" (default), "always", "never".
+
+    "auto" means: require token-bearer auth on mutating endpoints unless
+    the request comes from a loopback address (127.0.0.1, ::1). This
+    keeps the dashboard friction-free for the local user while refusing
+    LAN/remote clients to write state — the failure mode the API audit
+    flagged for OSS release.
+    """
+    raw = (webhook().get("require_auth") or "auto").strip().lower()
+    return raw if raw in ("auto", "always", "never") else "auto"
+
+
 def telegram() -> dict[str, Any]:
     return load().get("telegram", {})
 
@@ -305,6 +343,24 @@ def telegram_chat_id() -> int:
         users = tg.get("allowed_users") or []
         chat = users[0] if users else 0
     return int(chat) if chat else 0
+
+
+def telegram_topic_id(name: str) -> int | None:
+    """Return the integer message_thread_id for a named TG topic.
+
+    Reads `telegram.topics: {name: id, ...}` from config. Used by
+    skills (e.g. healthcheck/observability) that route their output
+    to a specific topic in the user's TG group. Returns None if the
+    name isn't configured.
+    """
+    topics = telegram().get("topics") or {}
+    val = topics.get(name)
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
 
 
 # ── Integrations ──────────────────────────────────────────────────────
@@ -557,7 +613,14 @@ SETTINGS_SCHEMA: list[dict[str, Any]] = [
              "description": "0.0.0.0 = all network interfaces. 127.0.0.1 = local only."},
             {"path": "webhook.port", "label": "Port", "type": "number"},
             {"path": "webhook.token", "label": "Auth token", "type": "secret",
-             "description": "Shared secret for inbound webhook calls."},
+             "description": "Shared secret for mutating endpoints (POST/PATCH/DELETE)."},
+            {"path": "webhook.require_auth", "label": "Require auth", "type": "select",
+             "options": [
+                 {"value": "auto", "label": "Auto (loopback bypass, token required from LAN)"},
+                 {"value": "always", "label": "Always (token required even from localhost)"},
+                 {"value": "never", "label": "Never (no token check — single-user/proxy only)"},
+             ],
+             "description": "Policy for /api/ mutations. GET is always open."},
         ],
     },
     {

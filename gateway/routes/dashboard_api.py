@@ -1349,7 +1349,13 @@ def api_views_serve_static(filename):
 @dashboard_bp.route('/api/markdown/render', methods=['GET'])
 def api_markdown_render():
     try:
-        import markdown as md_lib
+        try:
+            import markdown as md_lib
+        except ImportError:
+            return jsonify({
+                "error": "markdown package not installed",
+                "hint": "pip install markdown (already in requirements.txt; re-run setup.sh)",
+            }), 503
         import re as _re
 
         md_path = request.args.get('path', '')

@@ -307,21 +307,27 @@ export function Wizard({ onClose, config, timezoneOptions }: WizardProps) {
           <CliAuthStep
             method="gh"
             title="GitHub"
-            blurb="Klava uses the GitHub CLI (gh) for issue syncing, PR work, and Vox Lab task management. Signs in via your browser — no tokens to paste."
+            blurb="Klava uses the GitHub CLI (gh) for issue syncing, PR work, and Acme Lab task management. Signs in via your browser — no tokens to paste."
             installCmd="brew install gh"
           />
         )}
 
         {step === 'google' && (
-          <CliAuthStep
-            method="gog"
-            title="Google"
-            blurb="Gmail drafts, Google Tasks, Calendar events, Drive file access — all gated behind a single OAuth flow via the gog CLI. Uses a shared OAuth client by default; see Advanced below to bring your own."
-            installCmd="brew install gogcli"
-            requiresAccount={true}
-            accountPlaceholder="you@gmail.com"
-            advanced={<GogCredentialsAdvanced />}
-          />
+          <>
+            <CliAuthStep
+              method="gog"
+              title="Google"
+              blurb="Gmail drafts, Google Tasks, Calendar events, Drive file access — all gated behind a single OAuth flow via the gog CLI. Uses a shared OAuth client by default; see Advanced below to bring your own."
+              installCmd="brew install gogcli"
+              requiresAccount={true}
+              accountPlaceholder="you@gmail.com"
+              advanced={<GogCredentialsAdvanced />}
+            />
+            <GoogleTasksListPicker
+              account={getDotted(config, 'identity.email')}
+              currentName={getDotted(config, 'tasks.gtasks_list')}
+            />
+          </>
         )}
 
         {step === 'obsidian' && (
@@ -1025,6 +1031,124 @@ function GogCredentialsAdvanced() {
   );
 }
 
+// GoogleTasksListPicker bridges the gap between `gog auth` and a working
+// /api/klava/tasks endpoint. After auth it fetches the user's task lists
+// and writes the chosen one to config (tasks.gtasks_list +
+// integrations.google.tasks_lists). Without this, the Klava queue is
+// pointed at the example placeholder list ID and the Deck 500s on load.
+function GoogleTasksListPicker({ account, currentName }: { account: string; currentName: string }) {
+  type Item = { id: string; title: string };
+  const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [lists, setLists] = useState<Item[]>([]);
+  const [selected, setSelected] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<{ name: string; id: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setState('loading'); setError(null); setHint(null);
+    try {
+      const r = await api.wizardGoogleTasksLists(account || undefined);
+      if (!r.ok) {
+        setError(r.error || 'Could not list Google task lists');
+        setHint(r.hint || null);
+        setState('error');
+        return;
+      }
+      const items = r.lists || [];
+      setLists(items);
+      // Prefill: prefer the existing config name, then a list literally
+      // named "Klava", then the first item.
+      const prefer =
+        items.find(i => i.title === currentName)
+        || items.find(i => i.title === 'Klava')
+        || items[0];
+      setSelected(prefer?.id || '');
+      setState('ready');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setState('error');
+    }
+  }, [account, currentName]);
+
+  const save = async () => {
+    const item = lists.find(i => i.id === selected);
+    if (!item) return;
+    setSaving(true); setError(null);
+    try {
+      const r = await api.wizardGoogleTasksListSelect(item.title, item.id);
+      if (r.ok) {
+        setSaved({ name: item.title, id: item.id });
+      } else {
+        setError(r.error || 'save failed');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 16, padding: 12, background: '#18181b', borderRadius: 6 }}>
+      <div style={{ color: '#aaa', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        Klava task list
+      </div>
+      <p style={{ ...hintText, marginTop: 0 }}>
+        Klava reads its work queue from one of your Google Tasks lists. Pick or create a list (try "Klava") then click Load.
+      </p>
+      {state === 'idle' && (
+        <button onClick={load} disabled={!account} style={account ? primaryBtn : disabledBtn}>
+          Load my task lists
+        </button>
+      )}
+      {state === 'loading' && (
+        <div style={{ color: '#888', fontSize: 13 }}>Querying gog…</div>
+      )}
+      {state === 'error' && (
+        <div>
+          <div style={{ color: '#f87171', fontSize: 12, marginBottom: 6 }}>{error}</div>
+          {hint && <div style={{ color: '#fbbf24', fontSize: 12, marginBottom: 8 }}>{hint}</div>}
+          <button onClick={load} style={ghostBtn}>Retry</button>
+        </div>
+      )}
+      {state === 'ready' && (
+        <div>
+          {lists.length === 0 ? (
+            <div style={{ color: '#fbbf24', fontSize: 13, marginBottom: 8 }}>
+              No task lists found on this account. Create one in <a
+                href="https://tasks.google.com" target="_blank" rel="noreferrer"
+                style={{ color: '#60a5fa' }}>tasks.google.com</a> (e.g. "Klava"),
+              then re-load.
+            </div>
+          ) : (
+            <Field label="Klava list">
+              <select value={selected} onChange={e => setSelected(e.target.value)} style={inputStyle}>
+                {lists.map(i => (
+                  <option key={i.id} value={i.id}>{i.title}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+            <button onClick={save} disabled={!selected || saving} style={selected && !saving ? primaryBtn : disabledBtn}>
+              {saving ? 'Saving…' : 'Use this list'}
+            </button>
+            <button onClick={load} disabled={saving} style={ghostBtn}>Reload</button>
+            {saved && (
+              <span style={{ color: '#34d399', fontSize: 12 }}>
+                ✓ Saved {saved.name}
+              </span>
+            )}
+          </div>
+          {error && <div style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApiKeysStep() {
   // Keys Klava reads from .env. All optional — a blank value just leaves
   // the feature disabled. We do NOT read existing values (secrets are
@@ -1068,7 +1192,7 @@ function ApiKeysStep() {
     { key: 'GEMINI_API_KEY', label: 'Google Gemini API key', hint: 'aistudio.google.com/app/apikey — for /gemini-cli skill' },
     { key: 'GITHUB_PERSONAL_ACCESS_TOKEN', label: 'GitHub PAT (fallback)', hint: 'github.com/settings/tokens — only if you skipped gh auth login' },
     { key: 'OBSIDIAN_API_KEY', label: 'Obsidian Local REST API token', hint: 'Enable the Obsidian plugin first, then paste token' },
-    { key: 'SIGNAL_USER_ID', label: 'Signal phone number', hint: 'Your registered Signal phone, with country code, e.g. +37127000000' },
+    { key: 'SIGNAL_USER_ID', label: 'Signal phone number', hint: 'Your registered Signal phone, with country code, e.g. +15555550100' },
   ];
 
   return (

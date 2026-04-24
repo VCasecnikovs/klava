@@ -34,10 +34,26 @@ telegram:
 
 webhook:
   enabled: true
-  host: 0.0.0.0
+  # Bind to localhost by default. The dashboard's /api/* surface includes
+  # state-mutating endpoints (PATCH /api/settings, daemon restart,
+  # /api/self-evolve/run, etc.). Change to 0.0.0.0 only if you also set
+  # `token` and either keep `require_auth: auto` (loopback bypass only)
+  # or `require_auth: always` (token required for every mutation).
+  host: 127.0.0.1
   port: 18788
   token: ${WEBHOOK_TOKEN}
-  cors_origins: '*'
+  # Auth policy for mutating verbs (POST/PATCH/DELETE/PUT). One of:
+  #   auto    — require token unless the request is from 127.0.0.1/::1
+  #             (default; safe for `host: 0.0.0.0` if your token is
+  #             strong, since LAN clients never bypass)
+  #   always  — require token for every mutation, even from loopback
+  #   never   — no token check (legacy / single-user behind reverse proxy)
+  # GET endpoints are never gated — they're read-only.
+  require_auth: auto
+  # Same-origin only by default. Widening this to '*' lets any site
+  # the user visits drive the dashboard via Socket.IO; only do that
+  # for explicit cross-origin tooling.
+  cors_origins: 'http://localhost:18788'
   rate_limit_per_hour: 100
 
 sessions:

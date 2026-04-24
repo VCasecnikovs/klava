@@ -284,7 +284,7 @@ describe('DealsTab', () => {
 describe('DealsTable', () => {
   const deals = [
     { name: 'DealA', stage: 'Negotiation', stage_num: 8, value: 100000, mrr: 5000, owner: 'user', last_contact: '2026-03-10', follow_up: '2026-03-15', days_in_stage: 10, product: 'Data', is_active: true, is_priority: false, overdue: false, days_until_follow_up: 2 },
-    { name: 'DealB', stage: 'Prospecting', stage_num: 2, value: 20000, mrr: null, owner: 'Lev', last_contact: null, follow_up: null, days_in_stage: null, product: null, is_active: true, is_priority: true, overdue: true, days_until_follow_up: -5 },
+    { name: 'DealB', stage: 'Prospecting', stage_num: 2, value: 20000, mrr: null, owner: 'Alex', last_contact: null, follow_up: null, days_in_stage: null, product: null, is_active: true, is_priority: true, overdue: true, days_until_follow_up: -5 },
   ];
 
   it('renders table with deals', () => {

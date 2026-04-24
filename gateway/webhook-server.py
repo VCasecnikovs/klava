@@ -106,27 +106,20 @@ def _detect_outbound_comms(tool_name: str, input_data: dict) -> dict | None:
 
 def _execute_artifact_tool(tool_name: str, tool_input: dict) -> dict:
     import subprocess as _sp
-    if tool_name in ("mcp__ch-vox__run_select_query", "mcp__ch-astrum__run_select_query"):
+    if tool_name in ("mcp__ch-primary__run_select_query", "mcp__ch-secondary__run_select_query"):
         sql = tool_input.get("query") or tool_input.get("sql", "")
         if not sql:
             raise ValueError("Missing query/sql parameter")
         from lib import config as _cfg
         ch = _cfg.clickhouse()
         port = str(ch.get("port", 8443))
-        if tool_name == "mcp__ch-vox__run_select_query":
-            vox = ch.get("vox", {})
-            cmd = ["clickhouse-client",
-                   "--host", vox.get("host", ""),
-                   "--port", port, "--secure", "--user", vox.get("user", ""),
-                   "--password", vox.get("password", ""),
-                   "--query", sql, "--format", "JSON"]
-        else:
-            astrum = ch.get("astrum", {})
-            cmd = ["clickhouse-client",
-                   "--host", astrum.get("host", ""),
-                   "--port", port, "--secure", "--user", astrum.get("user", ""),
-                   "--password", astrum.get("password", ""),
-                   "--query", sql, "--format", "JSON"]
+        cluster_key = "primary" if tool_name == "mcp__ch-primary__run_select_query" else "secondary"
+        cluster = ch.get(cluster_key, {})
+        cmd = ["clickhouse-client",
+               "--host", cluster.get("host", ""),
+               "--port", port, "--secure", "--user", cluster.get("user", ""),
+               "--password", cluster.get("password", ""),
+               "--query", sql, "--format", "JSON"]
         proc = _sp.run(cmd, capture_output=True, text=True, timeout=30)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr[:500])
@@ -137,7 +130,7 @@ def _execute_artifact_tool(tool_name: str, tool_input: dict) -> dict:
             return {"raw": proc.stdout[:2000]}
 
     raise ValueError(f"Tool '{tool_name}' is not available in artifact mode. "
-                     f"Available: mcp__ch-vox__run_select_query, mcp__ch-astrum__run_select_query")
+                     f"Available: mcp__ch-primary__run_select_query, mcp__ch-secondary__run_select_query")
 
 
 app = Flask(__name__)
@@ -148,12 +141,24 @@ from routes.dashboard_api import dashboard_bp, init_dashboard_bp
 from routes.a2a import a2a_bp, init_a2a_bp
 from routes.agents import agents_bp
 from routes.wizard import wizard_bp
-from routes.daemons import daemons_bp
+from lib.auth import install_mutation_gate
+# NOTE: routes/daemons.py used to register /api/daemons + /api/daemons/<label>/
+# restart, but dashboard_bp owns those URLs and (because it's registered first)
+# was silently shadowing daemons_bp. Removed the registration to delete the
+# dead code path; the live implementation in dashboard_api.py includes the
+# webhook-server self-kill SIGKILL handling that daemons.py lacked.
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(a2a_bp)
 app.register_blueprint(agents_bp)
 app.register_blueprint(wizard_bp)
-app.register_blueprint(daemons_bp)
+
+# Auth gate for state-mutating verbs. Reads webhook.require_auth from
+# config.yaml — "auto" (default) lets loopback through unauth'd so the
+# local dashboard keeps working with zero ceremony, and refuses the
+# same writes from any non-loopback caller. a2a_bp routes already enforce
+# token auth via _check_auth(); the gate skips them by endpoint prefix.
+# See gateway/lib/auth.py.
+install_mutation_gate(app)
 
 # Global config
 CONFIG = {}
@@ -206,7 +211,7 @@ def _build_mcp_servers(claude_cli_path: str) -> dict:
     }
     grafana = _gateway_config.grafana()
     if grafana.get("enabled") and grafana.get("token") and grafana.get("url"):
-        servers["grafana-astrum"] = {
+        servers["grafana"] = {
             "command": grafana.get("mcp_binary", "mcp-grafana"),
             "args": ["--disable-write"],
             "env": {

@@ -2425,6 +2425,31 @@ _SUPPRESSED_SERVICE_LABELS: set = {
 }
 
 
+def _service_is_expected(label: str) -> bool:
+    """Return False for services the user has opted out of, so the dashboard
+    doesn't show "Services down" for daemons whose backing config is empty.
+
+    Mapping is conservative: only flag a service as not-expected when the
+    operator clearly hasn't configured it. Anything else stays expected so
+    real outages still surface.
+    """
+    short = label.split(".")[-1]  # e.g. "tg-gateway"
+
+    # tg-gateway: requires telegram.bot_token. The example config sets
+    # `${TG_BOT_TOKEN}`; if that env var is empty (the user skipped the
+    # Telegram step in the wizard), the daemon will exit immediately on
+    # boot and the service appears as down. That's intentional, not a fault.
+    if short == "tg-gateway":
+        token = (_cfg.telegram().get("bot_token") or "").strip()
+        # Treat unresolved ${...} placeholders as "not configured".
+        if not token or token.startswith("${") or token == "0":
+            return False
+        chat = _cfg.telegram_chat_id()
+        if not chat:
+            return False
+    return True
+
+
 def _collect_services() -> List[Dict]:
     """Get service status from launchctl. Discovers services dynamically from plist files."""
     launch_agents_dir = _cfg.launch_agents_dir()
@@ -2477,6 +2502,7 @@ def _collect_services() -> List[Dict]:
                         "label": label,
                         "running": running,
                         "pid": pid or ("periodic" if is_periodic and exit_code == "0" else None),
+                        "expected": _service_is_expected(label),
                     })
                     found = True
                     break
@@ -2486,10 +2512,17 @@ def _collect_services() -> List[Dict]:
                     "label": label,
                     "running": False,
                     "pid": None,
+                    "expected": _service_is_expected(label),
                 })
     except Exception:
         for label, display_name in labels.items():
-            services.append({"name": display_name, "label": label, "running": False, "pid": None})
+            services.append({
+                "name": display_name,
+                "label": label,
+                "running": False,
+                "pid": None,
+                "expected": _service_is_expected(label),
+            })
     return services
 
 

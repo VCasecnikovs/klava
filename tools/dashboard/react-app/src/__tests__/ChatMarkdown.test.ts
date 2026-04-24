@@ -162,9 +162,9 @@ describe('renderChatMD', () => {
     // Regression: Deck result cards write artifacts like `~/Documents/MyBrain/...`.
     // Those should open in Obsidian via obsidian:// deeplink.
     it('linkifies MyBrain inline-code paths to obsidian:// URI', () => {
-      const result = renderChatMD('Updated: `~/Documents/MyBrain/Inbox/2026-04-21 - SF Trip Logistics.md`');
+      const result = renderChatMD('Updated: `~/Documents/MyBrain/Inbox/2026-04-21 - Trip Logistics.md`');
       expect(result).toContain('href="obsidian://open?vault=MyBrain&file=Inbox%2F2026-04-21%20-%20SF%20Trip%20Logistics"');
-      expect(result).toContain('<code>~/Documents/MyBrain/Inbox/2026-04-21 - SF Trip Logistics.md</code>');
+      expect(result).toContain('<code>~/Documents/MyBrain/Inbox/2026-04-21 - Trip Logistics.md</code>');
     });
 
     it('does not linkify non-MyBrain inline code paths', () => {
