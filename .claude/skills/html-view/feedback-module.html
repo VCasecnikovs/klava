@@ -1,0 +1,660 @@
+<!-- Claude View Review Module v3 - Selection-based annotations -->
+<style>
+  /* Bottom toolbar */
+  .cv-toolbar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #fff; border-top: 1px solid #e0e0e0;
+    padding: 0.5rem 2rem; display: flex; align-items: center;
+    gap: 0.75rem; z-index: 9999;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+  }
+  .cv-tb { padding: 0.4rem 1rem; border: 1px solid #ddd; border-radius: 6px;
+    background: #fff; font-size: 0.85rem; cursor: pointer;
+    font-family: inherit; transition: all 0.15s; }
+  .cv-tb:hover { background: #f5f5f5; border-color: #bbb; }
+  .cv-tb.cv-primary { background: #111; color: #fff; border-color: #111; }
+  .cv-tb.cv-primary:hover { background: #333; }
+  .cv-stats { margin-left: auto; display: flex; gap: 10px; font-size: 0.78rem; }
+  .cv-stat { display: flex; align-items: center; gap: 3px; }
+  .cv-dot { width: 8px; height: 8px; border-radius: 50%; }
+  body { padding-bottom: 4rem !important; }
+
+  /* Selection popup */
+  .cv-popup {
+    position: fixed; z-index: 10000;
+    background: #fff; border: 1px solid #e0e0e0;
+    border-radius: 8px; padding: 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    display: none; gap: 3px;
+  }
+  .cv-popup.cv-visible { display: flex; }
+  .cv-popup-btn {
+    padding: 5px 10px; border: none; border-radius: 5px;
+    font-size: 0.8rem; font-weight: 500; cursor: pointer;
+    font-family: inherit; transition: all 0.1s;
+    white-space: nowrap;
+  }
+  .cv-popup-btn:hover { filter: brightness(0.92); }
+  .cv-popup-btn.cv-i-fix { background: #fef3c7; color: #92400e; }
+  .cv-popup-btn.cv-i-add { background: #dbeafe; color: #1e40af; }
+  .cv-popup-btn.cv-i-remove { background: #fee2e2; color: #991b1b; }
+  .cv-popup-btn.cv-i-do { background: #d1fae5; color: #065f46; }
+  .cv-popup-btn.cv-i-note { background: #f3f4f6; color: #4b5563; }
+
+  /* Comment input (appears after intent selection) */
+  .cv-input-wrap {
+    position: fixed; z-index: 10001;
+    background: #fff; border: 1px solid #e0e0e0;
+    border-radius: 8px; padding: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    width: 320px; display: none;
+  }
+  .cv-input-wrap.cv-visible { display: block; }
+  .cv-input-wrap textarea {
+    width: 100%; border: 1px solid #e5e7eb; border-radius: 5px;
+    padding: 6px 8px; font-family: inherit; font-size: 0.84rem;
+    resize: vertical; min-height: 44px; line-height: 1.4;
+  }
+  .cv-input-wrap textarea:focus {
+    outline: none; border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.12);
+  }
+  .cv-input-head {
+    font-size: 0.75rem; font-weight: 600; margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .cv-input-selected {
+    font-size: 0.78rem; color: #6b7280; margin-bottom: 6px;
+    padding: 3px 6px; background: #f9fafb; border-radius: 4px;
+    max-height: 40px; overflow: hidden;
+    border-left: 3px solid #d1d5db;
+  }
+  .cv-input-btns { display: flex; gap: 6px; margin-top: 6px; }
+  .cv-input-save {
+    padding: 4px 14px; background: #111; color: #fff;
+    border: none; border-radius: 5px; font-size: 0.78rem;
+    cursor: pointer; font-family: inherit;
+  }
+  .cv-input-save:hover { background: #333; }
+  .cv-input-cancel {
+    padding: 4px 14px; background: #fff; color: #666;
+    border: 1px solid #ddd; border-radius: 5px; font-size: 0.78rem;
+    cursor: pointer; font-family: inherit;
+  }
+
+  /* Highlight marks */
+  mark.cv-mark { border-radius: 2px; cursor: pointer; position: relative; padding: 0 1px; }
+  mark.cv-mark-fix { background: rgba(251,191,36,0.25); border-bottom: 2px solid #f59e0b; }
+  mark.cv-mark-add { background: rgba(96,165,250,0.2); border-bottom: 2px solid #3b82f6; }
+  mark.cv-mark-remove { background: rgba(248,113,113,0.2); border-bottom: 2px solid #ef4444; text-decoration: line-through; text-decoration-color: #ef4444; }
+  mark.cv-mark-do { background: rgba(52,211,153,0.2); border-bottom: 2px solid #10b981; }
+  mark.cv-mark-note { background: rgba(156,163,175,0.2); border-bottom: 2px solid #9ca3af; }
+
+  /* Hover tooltip for existing marks */
+  .cv-tip {
+    position: fixed; z-index: 10002;
+    background: #1f2937; color: #f9fafb;
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 0.78rem; max-width: 300px;
+    pointer-events: none; display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    line-height: 1.4;
+  }
+  .cv-tip .cv-tip-intent {
+    font-weight: 600; text-transform: uppercase;
+    font-size: 0.68rem; letter-spacing: 0.04em;
+    margin-bottom: 2px;
+  }
+  .cv-tip .cv-tip-comment { color: #d1d5db; }
+  .cv-tip-actions {
+    display: flex; gap: 8px; margin-top: 4px;
+    pointer-events: auto;
+  }
+  .cv-tip-actions button {
+    background: none; border: none; color: #9ca3af;
+    font-size: 0.7rem; cursor: pointer; padding: 0;
+    text-decoration: underline;
+  }
+  .cv-tip-actions button:hover { color: #fff; }
+
+  /* Toast */
+  .cv-toast {
+    position: fixed; top: 1.5rem; right: 1.5rem;
+    background: #111; color: #fff; padding: 0.6rem 1.2rem;
+    border-radius: 8px; font-size: 0.85rem; z-index: 99999;
+    opacity: 0; transform: translateY(-10px); transition: all 0.2s;
+    pointer-events: none;
+  }
+  .cv-toast.cv-show { opacity: 1; transform: translateY(0); }
+</style>
+
+<div class="cv-popup" id="cv-popup">
+  <button class="cv-popup-btn cv-i-fix" data-intent="fix">Fix</button>
+  <button class="cv-popup-btn cv-i-add" data-intent="add">Add</button>
+  <button class="cv-popup-btn cv-i-remove" data-intent="remove">Remove</button>
+  <button class="cv-popup-btn cv-i-do" data-intent="do">Do</button>
+  <button class="cv-popup-btn cv-i-note" data-intent="note">Note</button>
+</div>
+
+<div class="cv-input-wrap" id="cv-input">
+  <div class="cv-input-head" id="cv-input-head">Fix</div>
+  <div class="cv-input-selected" id="cv-input-sel"></div>
+  <textarea id="cv-input-ta" placeholder="What should be done?" rows="2"></textarea>
+  <div class="cv-input-btns">
+    <button class="cv-input-save" id="cv-input-save">Save (Cmd+Enter)</button>
+    <button class="cv-input-cancel" id="cv-input-cancel">Cancel</button>
+  </div>
+</div>
+
+<div class="cv-tip" id="cv-tip">
+  <div class="cv-tip-intent" id="cv-tip-intent"></div>
+  <div class="cv-tip-comment" id="cv-tip-comment"></div>
+  <div class="cv-tip-actions">
+    <button id="cv-tip-edit">edit</button>
+    <button id="cv-tip-del">delete</button>
+  </div>
+</div>
+
+<div class="cv-toast" id="cv-toast"></div>
+
+<div class="cv-toolbar">
+  <button class="cv-tb cv-primary cv-send-btn" onclick="CV.sendFeedback()" style="display:none">Send Feedback</button>
+  <button class="cv-tb" onclick="CV.exportMD()">Copy as MD</button>
+  <button class="cv-tb" onclick="CV.reset()">Reset</button>
+  <div class="cv-stats">
+    <span class="cv-stat"><span class="cv-dot" style="background:#f59e0b"></span><span id="cv-n-fix">0</span></span>
+    <span class="cv-stat"><span class="cv-dot" style="background:#3b82f6"></span><span id="cv-n-add">0</span></span>
+    <span class="cv-stat"><span class="cv-dot" style="background:#ef4444"></span><span id="cv-n-remove">0</span></span>
+    <span class="cv-stat"><span class="cv-dot" style="background:#10b981"></span><span id="cv-n-do">0</span></span>
+    <span class="cv-stat"><span class="cv-dot" style="background:#9ca3af"></span><span id="cv-n-note">0</span></span>
+  </div>
+</div>
+
+<script>
+window.CV = (function() {
+  const KEY = 'cvs-' + location.pathname.split('/').pop().replace('.html', '');
+  let annotations = [];
+  try { annotations = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) {}
+  let nextId = annotations.length ? Math.max(...annotations.map(a => a.id)) + 1 : 1;
+  let pendingRange = null;
+  let pendingIntent = null;
+  let pendingText = null;
+  let activeMarkId = null;
+
+  const popup = document.getElementById('cv-popup');
+  const input = document.getElementById('cv-input');
+  const tip = document.getElementById('cv-tip');
+
+  // ---- INIT ----
+  function init() {
+    // Selection popup
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mousedown', onMouseDown);
+
+    // Popup intent buttons
+    popup.querySelectorAll('.cv-popup-btn').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        onIntentSelect(btn.dataset.intent);
+      });
+    });
+
+    // Input save/cancel
+    document.getElementById('cv-input-save').onclick = saveAnnotation;
+    document.getElementById('cv-input-cancel').onclick = cancelInput;
+    document.getElementById('cv-input-ta').addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveAnnotation();
+      if (e.key === 'Escape') cancelInput();
+    });
+
+    // Tip actions
+    document.getElementById('cv-tip-edit').onclick = function() { editMark(activeMarkId); };
+    document.getElementById('cv-tip-del').onclick = function() { deleteMark(activeMarkId); };
+
+    // Restore saved annotations
+    restoreAll();
+    updateStats();
+  }
+
+  // ---- SELECTION HANDLING ----
+  function onMouseDown(e) {
+    // Hide popup on click outside
+    if (!e.target.closest('.cv-popup') && !e.target.closest('.cv-input-wrap') && !e.target.closest('.cv-tip')) {
+      hidePopup();
+      hideInput();
+      hideTip();
+    }
+  }
+
+  function onMouseUp(e) {
+    // Don't trigger inside our UI
+    if (e.target.closest('.cv-popup') || e.target.closest('.cv-input-wrap') ||
+        e.target.closest('.cv-toolbar') || e.target.closest('.cv-tip')) return;
+
+    // Check for mark click (show tooltip)
+    const mark = e.target.closest('mark.cv-mark');
+    if (mark) {
+      showTip(mark, e);
+      return;
+    }
+
+    setTimeout(function() {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.toString().trim().length < 2) {
+        hidePopup();
+        return;
+      }
+
+      // Check selection is within page content (not in our UI)
+      const range = sel.getRangeAt(0);
+      if (range.commonAncestorContainer.closest &&
+          (range.commonAncestorContainer.closest('.cv-toolbar') ||
+           range.commonAncestorContainer.closest('.cv-popup'))) return;
+
+      pendingRange = range.cloneRange();
+      showPopup(sel);
+    }, 10);
+  }
+
+  function showPopup(sel) {
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    popup.classList.add('cv-visible');
+    // Position above selection
+    let top = rect.top - 40;
+    if (top < 8) top = rect.bottom + 8;
+    popup.style.top = top + 'px';
+    popup.style.left = Math.max(8, rect.left + rect.width / 2 - popup.offsetWidth / 2) + 'px';
+  }
+
+  function hidePopup() {
+    popup.classList.remove('cv-visible');
+  }
+
+  // ---- INTENT SELECTION ----
+  function onIntentSelect(intent) {
+    hidePopup();
+    pendingIntent = intent;
+
+    const sel = window.getSelection();
+    pendingText = sel ? sel.toString().trim() : '';
+
+    // For "remove" - save directly, no comment needed
+    if (intent === 'remove') {
+      saveDirectly(pendingText, intent, '');
+      return;
+    }
+
+    showInput(intent, pendingText);
+  }
+
+  function showInput(intent, selectedText) {
+    const labels = { fix: 'Fix', add: 'Add', remove: 'Remove', do: 'Action', note: 'Note' };
+    const colors = { fix: '#92400e', add: '#1e40af', remove: '#991b1b', do: '#065f46', note: '#4b5563' };
+
+    document.getElementById('cv-input-head').textContent = labels[intent] || intent;
+    document.getElementById('cv-input-head').style.color = colors[intent] || '#333';
+    document.getElementById('cv-input-sel').textContent = selectedText.length > 80
+      ? selectedText.substring(0, 80) + '...' : selectedText;
+
+    const ta = document.getElementById('cv-input-ta');
+    ta.value = '';
+    ta.placeholder = intent === 'do' ? 'What action to take?' :
+                     intent === 'fix' ? 'What should be changed?' :
+                     intent === 'add' ? 'What to add?' : 'Your note...';
+
+    // Position near the selection
+    if (pendingRange) {
+      const rect = pendingRange.getBoundingClientRect();
+      input.style.top = Math.min(rect.bottom + 8, window.innerHeight - 200) + 'px';
+      input.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 340)) + 'px';
+    }
+
+    input.classList.add('cv-visible');
+    ta.focus();
+  }
+
+  function hideInput() {
+    input.classList.remove('cv-visible');
+  }
+
+  function cancelInput() {
+    hideInput();
+    pendingRange = null;
+    pendingIntent = null;
+    pendingText = null;
+    window.getSelection().removeAllRanges();
+  }
+
+  // ---- SAVE ANNOTATION ----
+  function saveAnnotation() {
+    const comment = document.getElementById('cv-input-ta').value.trim();
+    const text = pendingText || '';
+
+    saveDirectly(text, pendingIntent, comment);
+    hideInput();
+  }
+
+  function saveDirectly(text, intent, comment) {
+    if (!pendingRange || !text) return;
+
+    const id = nextId++;
+    const ann = {
+      id: id,
+      text: text,
+      intent: intent,
+      comment: comment,
+      // For restore: store path info
+      path: getPathInfo(pendingRange)
+    };
+
+    // Wrap selection in mark
+    try {
+      wrapRange(pendingRange, id, intent);
+    } catch(e) {
+      // If wrapping fails (cross-element selection), wrap what we can
+      try {
+        const contents = pendingRange.extractContents();
+        const mark = document.createElement('mark');
+        mark.className = 'cv-mark cv-mark-' + intent;
+        mark.dataset.cvId = id;
+        mark.appendChild(contents);
+        pendingRange.insertNode(mark);
+      } catch(e2) {
+        console.warn('Could not highlight selection', e2);
+      }
+    }
+
+    annotations.push(ann);
+    save();
+    updateStats();
+    window.getSelection().removeAllRanges();
+    pendingRange = null;
+    pendingIntent = null;
+    pendingText = null;
+    toast(intent.charAt(0).toUpperCase() + intent.slice(1) + ' added');
+  }
+
+  function wrapRange(range, id, intent) {
+    // Simple case: selection within one text node
+    const mark = document.createElement('mark');
+    mark.className = 'cv-mark cv-mark-' + intent;
+    mark.dataset.cvId = id;
+    range.surroundContents(mark);
+  }
+
+  // ---- PATH SERIALIZATION ----
+  function getPathInfo(range) {
+    // Store enough to find the text again
+    const container = range.commonAncestorContainer;
+    const parent = container.nodeType === 3 ? container.parentElement : container;
+    return {
+      parentSelector: getCSSPath(parent),
+      text: range.toString().trim().substring(0, 200)
+    };
+  }
+
+  function getCSSPath(el) {
+    if (!el || el === document.body) return 'body';
+    if (el.id) return '#' + el.id;
+    const parts = [];
+    while (el && el !== document.body) {
+      let sel = el.tagName.toLowerCase();
+      if (el.id) { parts.unshift('#' + el.id); break; }
+      const siblings = el.parentElement ? [...el.parentElement.children].filter(c => c.tagName === el.tagName) : [];
+      if (siblings.length > 1) sel += ':nth-of-type(' + (siblings.indexOf(el) + 1) + ')';
+      parts.unshift(sel);
+      el = el.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  // ---- RESTORE ----
+  function restoreAll() {
+    annotations.forEach(ann => {
+      // Try to find and highlight the text
+      try {
+        const parent = ann.path && ann.path.parentSelector
+          ? document.querySelector(ann.path.parentSelector) : document.body;
+        if (!parent) return;
+
+        const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT, null);
+        let node;
+        while (node = walker.nextNode()) {
+          const idx = node.textContent.indexOf(ann.text.substring(0, 50));
+          if (idx !== -1) {
+            const range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, Math.min(idx + ann.text.length, node.textContent.length));
+            try {
+              wrapRange(range, ann.id, ann.intent);
+            } catch(e) {}
+            break;
+          }
+        }
+      } catch(e) {}
+    });
+  }
+
+  // ---- TOOLTIP FOR MARKS ----
+  function showTip(mark, e) {
+    const id = parseInt(mark.dataset.cvId);
+    const ann = annotations.find(a => a.id === id);
+    if (!ann) return;
+
+    activeMarkId = id;
+    const labels = { fix: 'FIX', add: 'ADD', remove: 'REMOVE', do: 'ACTION', note: 'NOTE' };
+    const colors = { fix: '#fbbf24', add: '#60a5fa', remove: '#f87171', do: '#34d399', note: '#9ca3af' };
+
+    document.getElementById('cv-tip-intent').textContent = labels[ann.intent] || ann.intent;
+    document.getElementById('cv-tip-intent').style.color = colors[ann.intent] || '#fff';
+    document.getElementById('cv-tip-comment').textContent = ann.comment || '(no comment)';
+
+    const rect = mark.getBoundingClientRect();
+    tip.style.display = 'block';
+    tip.style.top = (rect.bottom + 6) + 'px';
+    tip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 320)) + 'px';
+  }
+
+  function hideTip() {
+    tip.style.display = 'none';
+    activeMarkId = null;
+  }
+
+  // ---- EDIT/DELETE MARKS ----
+  function editMark(id) {
+    hideTip();
+    const ann = annotations.find(a => a.id === id);
+    if (!ann) return;
+
+    pendingIntent = ann.intent;
+    // Find the mark element
+    const mark = document.querySelector('mark[data-cv-id="' + id + '"]');
+    if (mark) {
+      const rect = mark.getBoundingClientRect();
+      pendingRange = null; // no new range, editing existing
+
+      const labels = { fix: 'Fix', add: 'Add', remove: 'Remove', do: 'Action', note: 'Note' };
+      const colors = { fix: '#92400e', add: '#1e40af', remove: '#991b1b', do: '#065f46', note: '#4b5563' };
+
+      document.getElementById('cv-input-head').textContent = 'Edit: ' + (labels[ann.intent] || ann.intent);
+      document.getElementById('cv-input-head').style.color = colors[ann.intent] || '#333';
+      document.getElementById('cv-input-sel').textContent = ann.text.length > 80
+        ? ann.text.substring(0, 80) + '...' : ann.text;
+      document.getElementById('cv-input-ta').value = ann.comment || '';
+
+      input.style.top = Math.min(rect.bottom + 8, window.innerHeight - 200) + 'px';
+      input.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 340)) + 'px';
+      input.classList.add('cv-visible');
+      document.getElementById('cv-input-ta').focus();
+
+      // Override save to update existing
+      document.getElementById('cv-input-save').onclick = function() {
+        ann.comment = document.getElementById('cv-input-ta').value.trim();
+        save();
+        hideInput();
+        document.getElementById('cv-input-save').onclick = saveAnnotation;
+        toast('Updated');
+      };
+    }
+  }
+
+  function deleteMark(id) {
+    hideTip();
+    const mark = document.querySelector('mark[data-cv-id="' + id + '"]');
+    if (mark) {
+      // Unwrap: replace mark with its text content
+      const parent = mark.parentNode;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      parent.normalize();
+    }
+    annotations = annotations.filter(a => a.id !== id);
+    save();
+    updateStats();
+    toast('Deleted');
+  }
+
+  // ---- PERSISTENCE ----
+  function save() { localStorage.setItem(KEY, JSON.stringify(annotations)); }
+
+  function updateStats() {
+    const c = { fix: 0, add: 0, remove: 0, do: 0, note: 0 };
+    annotations.forEach(a => { if (c[a.intent] !== undefined) c[a.intent]++; });
+    ['fix', 'add', 'remove', 'do', 'note'].forEach(k => {
+      const el = document.getElementById('cv-n-' + k);
+      if (el) el.textContent = c[k];
+    });
+  }
+
+  // ---- EXPORT ----
+  function exportMD() {
+    if (!annotations.length) { toast('No annotations yet'); return; }
+
+    const title = document.title || 'Untitled';
+    let md = '## Review: ' + title + '\n\n';
+
+    const labels = { fix: 'Fix', add: 'Add', remove: 'Remove', do: 'Action', note: 'Notes' };
+    const order = ['do', 'fix', 'add', 'remove', 'note'];
+
+    order.forEach(intent => {
+      const items = annotations.filter(a => a.intent === intent);
+      if (!items.length) return;
+
+      md += '### ' + labels[intent] + '\n';
+      items.forEach(a => {
+        const snippet = a.text.length > 100 ? a.text.substring(0, 100) + '...' : a.text;
+        md += '- "' + snippet + '"';
+        if (a.comment) md += '\n  > ' + a.comment.replace(/\n/g, '\n  > ');
+        md += '\n';
+      });
+      md += '\n';
+    });
+
+    navigator.clipboard.writeText(md).then(() => {
+      toast('Review copied! Paste in Claude.');
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = md; ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+      toast('Copied!');
+    });
+  }
+
+  // ---- SEND FEEDBACK (artifact bridge) ----
+  function sendFeedback() {
+    if (!annotations.length) { toast('No annotations yet'); return; }
+    const md = buildFeedbackMD();
+    if (window.artifactMessage) {
+      window.artifactMessage(md);
+      toast('Feedback sent to Claude!');
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(md).then(() => toast('Copied (no artifact bridge)')).catch(() => toast('Failed'));
+    }
+  }
+
+  function buildFeedbackMD() {
+    const title = document.title || 'Untitled';
+    let md = '## Review: ' + title + '\n\n';
+    const labels = { fix: 'Fix', add: 'Add', remove: 'Remove', do: 'Action', note: 'Notes' };
+    const order = ['do', 'fix', 'add', 'remove', 'note'];
+    order.forEach(intent => {
+      const items = annotations.filter(a => a.intent === intent);
+      if (!items.length) return;
+      md += '### ' + labels[intent] + '\n';
+      items.forEach(a => {
+        const snippet = a.text.length > 100 ? a.text.substring(0, 100) + '...' : a.text;
+        md += '- "' + snippet + '"';
+        if (a.comment) md += '\n  > ' + a.comment.replace(/\n/g, '\n  > ');
+        md += '\n';
+      });
+      md += '\n';
+    });
+    return md;
+  }
+
+  // ---- RESET ----
+  let resetPending = false;
+  function reset() {
+    if (!annotations.length) { toast('Nothing to reset'); return; }
+    if (!resetPending) {
+      resetPending = true;
+      toast('Click Reset again to confirm');
+      setTimeout(() => { resetPending = false; }, 3000);
+      return;
+    }
+    resetPending = false;
+    // Unwrap all marks
+    document.querySelectorAll('mark.cv-mark').forEach(mark => {
+      const parent = mark.parentNode;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      parent.normalize();
+    });
+    annotations = [];
+    save();
+    updateStats();
+    toast('All cleared');
+  }
+
+  // ---- TOAST ----
+  function toast(msg) {
+    const el = document.getElementById('cv-toast');
+    el.textContent = msg;
+    el.classList.add('cv-show');
+    setTimeout(() => el.classList.remove('cv-show'), 2000);
+  }
+
+  // ---- REGISTER VIEW ----
+  function reg() {
+    try {
+      const e = { file: location.pathname.split('/').pop(), title: document.title, date: new Date().toISOString() };
+      let idx = [];
+      try { idx = JSON.parse(localStorage.getItem('cv-index') || '[]'); } catch(x) {}
+      const ex = idx.findIndex(i => i.file === e.file);
+      if (ex >= 0) idx[ex] = e; else idx.unshift(e);
+      if (idx.length > 100) idx = idx.slice(0, 100);
+      localStorage.setItem('cv-index', JSON.stringify(idx));
+    } catch(e) {}
+  }
+
+  // ---- BOOT ----
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { init(); reg(); });
+  } else { init(); reg(); }
+
+  // Show "Send Feedback" button if artifact bridge is available
+  function checkBridge() {
+    if (window.artifactMessage) {
+      document.querySelector('.cv-send-btn').style.display = '';
+    }
+  }
+  // Check immediately and after bridge loads (it may init after us)
+  checkBridge();
+  setTimeout(checkBridge, 500);
+
+  return { exportMD, sendFeedback, reset };
+})();
+</script>

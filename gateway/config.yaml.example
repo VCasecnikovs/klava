@@ -1,0 +1,93 @@
+# Claude Gateway Configuration
+# Copy this file to config.yaml and fill in your values.
+# Environment variables can be referenced with ${VAR_NAME} syntax.
+
+identity:
+  user_name: User
+  assistant_name: Assistant
+  email: you@example.com
+  github_login: your-github-username
+  launchd_prefix: com.vadims
+  timezone: UTC
+  language: en
+
+paths:
+  # project_root auto-detects from the config file location. Uncomment to override.
+  # project_root: ~/Documents/GitHub/claude
+  obsidian_vault: ~/Documents/MyBrain
+  deals_dir: ~/Documents/MyBrain/Deals
+  vadimgest_url: http://localhost:8484
+  claude_cli: __CLAUDE_CLI__
+  node_bin: __NODE_DIR__
+  homebrew_bin: /opt/homebrew/bin
+  launch_agents: ~/Library/LaunchAgents
+  home_claude_dir: ~/.claude
+  feed_log: ~/.claude/feed/messages.jsonl
+
+telegram:
+  bot_token: ${TG_BOT_TOKEN}
+  chat_id: 0
+  allowed_users:
+  - 0
+  stream_mode: draft
+  draft_throttle_ms: 300
+
+webhook:
+  enabled: true
+  host: 0.0.0.0
+  port: 18788
+  token: ${WEBHOOK_TOKEN}
+  cors_origins: '*'
+  rate_limit_per_hour: 100
+
+sessions:
+  cleanup_cutoff_seconds: 300
+  stuck_cutoff_seconds: 14400
+  reaper_max_age_seconds: 10800
+  persistent_idle_timeout: 300
+
+cron:
+  enabled: true
+
+heartbeat:
+  interval_minutes: 60
+
+tasks:
+  model: sonnet
+  timeout: 1800
+  gtasks_list: My Tasks  # name from integrations.google.tasks_lists
+
+main_session:
+  enabled: true
+  session_key: main
+
+subagents:
+  enabled: true
+  max_concurrent: 3
+  default_model: sonnet
+  default_timeout: 600
+  announce_mode: direct
+  tools: '*'
+  output_dir: /tmp/claude_subagents
+
+models:
+  default: sonnet
+
+timeouts:
+  question_seconds: 300
+  plan_approval_seconds: 600
+  comms_approval_seconds: 600
+
+# Optional integrations - leave blank or remove to disable
+integrations:
+  github:
+    token: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+  gemini:
+    api_key: ${GEMINI_API_KEY}
+  obsidian:
+    api_key: ${OBSIDIAN_API_KEY}
+  google:
+    # Path to the gog CLI binary. Defaults to ~/bin/gog.
+    # cli_binary: /opt/homebrew/bin/gog
+    tasks_lists:
+      My Tasks: your-google-tasks-list-id

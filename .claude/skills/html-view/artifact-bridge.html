@@ -1,0 +1,29 @@
+<!-- Artifact Bridge: enables communication between artifact HTML and dashboard -->
+<script>
+(function() {
+  // Send a message to Claude via the dashboard chat
+  window.artifactMessage = function(text) {
+    window.parent.postMessage({
+      type: 'artifact',
+      action: 'chat_message',
+      payload: { text: text }
+    }, '*');
+  };
+
+  // Listen for commands from the dashboard
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'artifact_command') {
+      if (e.data.action === 'refresh') {
+        window.location.reload();
+      }
+      // Custom handler hook
+      if (window.onArtifactCommand) {
+        window.onArtifactCommand(e.data);
+      }
+    }
+  });
+
+  // Notify parent that artifact is ready
+  window.parent.postMessage({ type: 'artifact', action: 'ready' }, '*');
+})();
+</script>

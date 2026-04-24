@@ -1,0 +1,139 @@
+# Environment secrets
+.env
+
+# Claude Code runtime (in .claude/)
+.claude/backups/
+.claude/debug/
+.claude/todos/
+.claude/projects/
+.claude/shell-snapshots/
+.claude/file-history/
+.claude/cache/
+.claude/chrome/
+.claude/ide/
+.claude/statsig/
+.claude/telemetry/
+.claude/paste-cache/
+.claude/plans/
+.claude/plugins/
+.claude/settings.local.json
+.claude/settings.json
+.claude/settings.json.tpl
+.claude/history.jsonl
+.claude/stats-cache.json
+.claude/*.log
+.claude/.claude.json*
+.claude/session-env/
+.claude/logs/
+.claude/memory/
+.claude/sessions/
+.claude/tasks/
+.claude/teams/
+.claude/.claude.json.backup.*
+.claude/mcp-needs-auth-cache.json
+
+# Pipeline and UI state (runtime)
+.claude/state/
+
+# Data (databases, logs, state)
+data/
+
+# Idle-research rejection log — runtime state, per-machine
+tasks/rejected_proposals.jsonl
+
+# Data lake submodule lives at vadimgest/ (optional).
+# Tracked as a git submodule via .gitmodules so users can clone their own
+# data lake implementation in place, or leave the directory empty.
+
+# Gateway sessions
+gateway/sessions/
+
+# Tools state
+tools/privacy-cash/state.json
+tools/privacy-cash/history.json
+
+# Large data exports and scripts
+gur_*
+
+# Self-evolve backlog (personal debug logs)
+self-evolve/
+
+# Changelog (personal session logs)
+changelog/
+
+# Coverage reports
+.coverage
+
+# MCP venvs
+telegram-mcp/.venv/
+signal-mcp/.venv/
+whatsapp-mcp/.venv/
+
+# CRON state and personal config (use jobs.json.example as template)
+cron/jobs.json
+cron/runs.jsonl
+cron/state.json
+cron/heartbeat_state.json
+cron/subagents_state.json
+cron/qq_markers.jsonl
+cron/*.log
+
+# WhatsApp MCP bridge runtime logs
+whatsapp-mcp/whatsapp-bridge/bridge*.log
+
+# Memory daily logs (too large)
+memory/*.md
+memory/daily/
+
+# Autoresearch personal config (references gitignored paths)
+.autoresearch.yaml
+
+# Personal config (use config.yaml.example as template)
+gateway/config.yaml
+
+# Personal data lives at ~/.klava/ (outside the repo, OpenClaw-style).
+# gateway/config.yaml and cron/jobs.json are symlinks into ~/.klava/ until
+# the config loader is refactored to read from there directly.
+
+# Architecture reference (contains personal service details)
+.claude/reference/
+
+# Personal skills (local-only, not shipped with open-source)
+# Live at .claude/skills/personal/*/SKILL.md, surfaced to Claude Code via
+# symlinks at .claude/skills/NAME -> ./personal/NAME (see skills/.gitignore
+# and scripts/link-personal-skills.sh).
+.claude/skills/personal/
+
+# Skill personal config (user-specific, like MEMORY.md for skills)
+.claude/skills/**/PERSONAL.md
+
+# Personal overlay imported by generic CLAUDE.md if present
+.claude/MEMORY.md
+.claude/CLAUDE.local.md
+
+# Daily notes (personal session context — deals, contacts, decisions)
+memory/
+# Outreach drafts (messages to real people, private business context)
+drafts/
+# Scratch / tmp markdown kept outside tracked state
+.claude/tmp/
+# Heartbeat / cron runtime state (contains reference names for private items)
+cron/heartbeat_state.json
+cron/state.json
+cron/subagents_state.json
+cron/runs.jsonl
+cron/rejected_proposals.jsonl
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+qmd
+debug/
+projects/

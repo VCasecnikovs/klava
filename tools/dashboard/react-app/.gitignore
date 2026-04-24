@@ -1,0 +1,5 @@
+node_modules/
+# Vite + TS incremental build cache (mutates on every build)
+tsconfig.tsbuildinfo
+.vite/
+dist/

@@ -1,0 +1,3 @@
+# Path placeholder filter: __HOME__ in git, actual $HOME in working tree
+launchagents/*.plist filter=homedir
+.claude/settings.json filter=homedir

@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "heartbeat",
+      "name": "Heartbeat Check",
+      "enabled": true,
+      "schedule": {
+        "type": "every",
+        "interval_minutes": 30
+      },
+      "execution": {
+        "mode": "isolated",
+        "model": "sonnet",
+        "prompt_template": "[HEARTBEAT {{now_eet}}]\nRead __REPO_DIR__/.claude/skills/heartbeat/SKILL.md and do your job.",
+        "timeout_seconds": 3600,
+        "allowedTools": "*",
+        "add_dirs": [
+          "__OBSIDIAN_VAULT__",
+          "__REPO_DIR__"
+        ]
+      },
+      "retry": {
+        "max_attempts": 2,
+        "delay_minutes": 5
+      },
+      "catch_up": {
+        "enabled": true,
+        "max_catch_up": 1
+      },
+      "on_complete": {
+        "trigger": "heartbeat-commit",
+        "condition": "on_success"
+      }
+    },
+    {
+      "id": "reflection",
+      "name": "Nightly Reflection",
+      "enabled": true,
+      "schedule": {
+        "type": "cron",
+        "cron": "30 5 * * *"
+      },
+      "execution": {
+        "mode": "isolated",
+        "model": "opus",
+        "fallback_model": "sonnet",
+        "max_turns": 120,
+        "prompt_template": "You are the nightly reflection worker. Current time: {{now}}.\n\nRead __REPO_DIR__/.claude/skills/reflection/SKILL.md and execute all phases in order.",
+        "timeout_seconds": 5400,
+        "allowedTools": ["Read", "Write", "Edit", "Grep", "Glob", "Bash"],
+        "add_dirs": [
+          "__OBSIDIAN_VAULT__",
+          "__REPO_DIR__"
+        ]
+      },
+      "retry": {
+        "max_attempts": 3,
+        "delay_minutes": 15
+      },
+      "catch_up": {
+        "enabled": true,
+        "max_catch_up": 1
+      },
+      "on_complete": {
+        "trigger": "reflection-commit",
+        "condition": "always"
+      }
+    },
+    {
+      "id": "observability",
+      "name": "System Observability",
+      "enabled": true,
+      "requires_internet": false,
+      "schedule": {
+        "type": "every",
+        "interval_minutes": 60
+      },
+      "execution": {
+        "mode": "bash",
+        "command": "__PYTHON_BIN__ __REPO_DIR__/.claude/skills/healthcheck/scripts/observability.py",
+        "timeout_seconds": 120
+      },
+      "catch_up": {
+        "enabled": false,
+        "max_catch_up": 0
+      }
+    },
+    {
+      "id": "task-consumer",
+      "name": "Task Consumer",
+      "enabled": true,
+      "schedule": {
+        "type": "every",
+        "interval_minutes": 5
+      },
+      "execution": {
+        "mode": "bash",
+        "command": "cd __REPO_DIR__ && __PYTHON_BIN__ -m tasks.consumer >> /tmp/task-consumer.log 2>&1",
+        "timeout_seconds": 3600
+      },
+      "catch_up": {
+        "enabled": false,
+        "max_catch_up": 0
+      }
+    },
+    {
+      "id": "heartbeat-commit",
+      "name": "Git Commit after Heartbeat",
+      "enabled": true,
+      "requires_internet": false,
+      "schedule": {
+        "type": "every",
+        "interval_minutes": 99999
+      },
+      "execution": {
+        "mode": "bash",
+        "command": "cd __REPO_DIR__ && git add memory/ && git diff --cached --quiet || git commit -m \"heartbeat: $(date +%Y-%m-%d)\"",
+        "timeout_seconds": 30
+      }
+    },
+    {
+      "id": "reflection-commit",
+      "name": "Git Commit after Reflection",
+      "enabled": true,
+      "requires_internet": false,
+      "schedule": {
+        "type": "every",
+        "interval_minutes": 99999
+      },
+      "execution": {
+        "mode": "bash",
+        "command": "cd __REPO_DIR__ && git add .claude/CLAUDE.md .claude/skills/ memory/ && git diff --cached --quiet || git commit -m \"reflection: $(date +%Y-%m-%d)\"",
+        "timeout_seconds": 30
+      }
+    },
+    {
+      "id": "backup-cleanup",
+      "name": "Backup Cleanup",
+      "enabled": true,
+      "schedule": {
+        "type": "cron",
+        "cron": "0 6 * * *"
+      },
+      "execution": {
+        "mode": "bash",
+        "command": "find __HOME__/.claude/backups -name '.claude.json.backup.*' -mtime +7 -delete 2>/dev/null; echo 'Backup cleanup completed'"
+      },
+      "catch_up": {
+        "enabled": false
+      }
+    }
+  ]
+}

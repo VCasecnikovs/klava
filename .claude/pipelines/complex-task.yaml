@@ -1,0 +1,51 @@
+name: complex-task
+description: User-driven complex task pipeline with plan approval
+
+states:
+  plan:
+    description: Research context, propose approach, iterate with user
+    instructions: |
+      User activates Plan Mode. Research task context (files, data, history, people).
+      Ask questions, propose approach. Iterate until plan is fully clear.
+      Use EnterPlanMode / ExitPlanMode for approval gate.
+
+  execute:
+    description: Execute approved plan
+    instructions: |
+      Execute the plan. Check skills first, use subagents for parallel work.
+      Each plan step = subtask. If >3 steps - create Task list for tracking.
+      Verify each step before moving to next. When done - transition to result.
+
+  result:
+    description: Return result to user
+    instructions: |
+      Brief summary: what was done, what changed, what was verified.
+
+  evaluate:
+    description: User evaluates, fix if needed
+    instructions: |
+      User evaluates result. Use /evaluate for structured feedback if not satisfied.
+      Fix skill based on feedback, git commit, re-run Execute if needed.
+
+  done:
+    terminal: true
+
+transitions:
+  - from: plan
+    to: execute
+  - from: execute
+    to: result
+  - from: result
+    to: evaluate
+  - from: evaluate
+    to: execute
+    label: rework
+  - from: evaluate
+    to: done
+    label: accepted
+
+settings:
+  initial_state: plan
+  max_retries: 3
+  retry_counter_transitions:
+    - { from: evaluate, to: execute }

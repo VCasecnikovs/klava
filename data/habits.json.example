@@ -1,0 +1,29 @@
+{
+  "habits": [
+    {
+      "id": "exercise",
+      "title": "Exercise",
+      "subtitle": "30 min workout session",
+      "category": "fitness",
+      "frequency": "daily",
+      "icon": "dumbbell"
+    },
+    {
+      "id": "reading",
+      "title": "Reading",
+      "subtitle": "Read for 20 minutes",
+      "category": "growth",
+      "frequency": "daily",
+      "icon": "sparkles"
+    },
+    {
+      "id": "hydration",
+      "title": "Drink 2L water",
+      "subtitle": "Stay hydrated throughout the day",
+      "category": "health",
+      "frequency": "daily",
+      "icon": "wind"
+    }
+  ],
+  "log": {}
+}

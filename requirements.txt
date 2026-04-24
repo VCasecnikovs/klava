@@ -1,0 +1,28 @@
+# Runtime dependencies for the Claude Agent gateway.
+# Install: pip install -r requirements.txt
+#
+# Dev / test deps live in requirements-dev.txt.
+
+# Claude agent.
+# 0.1.66 introduces ThinkingConfigAdaptive.display, required for Opus 4.7+
+# thinking visibility (4.7 hides thinking content unless display="summarized").
+claude-agent-sdk>=0.1.66
+
+# Web / dashboard
+flask>=3.0
+flask-socketio>=5.3
+
+# Scheduling
+apscheduler>=3.10
+croniter>=2.0
+
+# Config / secrets
+pyyaml>=6.0
+python-dotenv>=1.0
+
+# HTTP
+requests>=2.31
+
+# Telegram (bot + user client)
+python-telegram-bot>=21.0
+telethon>=1.34

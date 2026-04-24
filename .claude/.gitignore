@@ -1,0 +1,48 @@
+# Pipeline state (runtime)
+state/sessions/
+state/completed/
+
+# Session & Cache data (noise, no need to version)
+projects/
+plans/
+session-env/
+shell-snapshots/
+paste-cache/
+file-history/
+debug/
+cache/
+telemetry/
+statsig/
+tasks/
+todos/
+sessions/
+history.jsonl
+stats-cache.json
+
+# Logs
+*.log
+*.log.old
+
+# System
+.DS_Store
+
+# IDE
+ide/
+
+# Downloads (temporary files)
+downloads/
+
+# Signal MCP (separate repo)
+signal-mcp/
+
+# Test scripts
+test-*.sh
+
+# Chrome extension data
+chrome/
+
+# Plugins (if separate)
+plugins/
+*.pyc
+__pycache__/
+views/
