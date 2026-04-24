@@ -1155,7 +1155,7 @@ describe('SkillsTab', () => {
       ...emptyDashboard,
       skill_inventory: [
         { name: 'heartbeat-skill', description: 'Periodic intake', calls_30d: 720, error_count: 0, call_count: 720, last_call_ago: '30m', last_modified_ago: '1d' },
-        { name: 'vox-crm', description: 'CRM updates', calls_30d: 50, error_count: 2, call_count: 50, last_call_ago: '2h', last_modified_ago: '3d' },
+        { name: 'example-crm', description: 'CRM updates', calls_30d: 50, error_count: 2, call_count: 50, last_call_ago: '2h', last_modified_ago: '3d' },
       ],
       skill_changes: [
         { date: '2026-03-16T10:00:00', type: 'modified', skill: 'heartbeat-skill', summary: 'Updated intake logic', message: 'Updated intake logic', hash: 'abc1234', files: ['skills/heartbeat/SKILL.md'], insertions: 10, deletions: 3 },
@@ -1170,7 +1170,7 @@ describe('SkillsTab', () => {
 
     // Skills render
     expect(screen.getByText('heartbeat-skill')).toBeTruthy();
-    expect(screen.getByText('vox-crm')).toBeTruthy();
+    expect(screen.getByText('example-crm')).toBeTruthy();
 
     // Changes timeline
     expect(screen.getByText('Skill Changes (7d)')).toBeTruthy();

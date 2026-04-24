@@ -799,8 +799,8 @@ class TestFormatToolDetails:
 
     def test_skill(self):
         fn = self._make_format_fn()
-        result = fn("Skill", {"skill": "vox-crm"})
-        assert "/vox-crm" in result
+        result = fn("Skill", {"skill": "example-crm"})
+        assert "/example-crm" in result
 
     def test_skill_empty(self):
         fn = self._make_format_fn()

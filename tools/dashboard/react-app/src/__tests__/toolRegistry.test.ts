@@ -67,7 +67,7 @@ describe('getToolConfig', () => {
   });
 
   it('returns ch config for mcp__ch prefix', () => {
-    const cfg = getToolConfig('mcp__ch-astrum__run_select_query');
+    const cfg = getToolConfig('mcp__ch-secondary__run_select_query');
     expect(cfg.color).toBe('#f97316');
   });
 

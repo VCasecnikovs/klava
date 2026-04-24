@@ -21,7 +21,7 @@ If the body says "reply to X about Y", re-read the original message. Don't write
 - Full filesystem: repo (`~/Documents/GitHub/claude/`) + Obsidian vault (`~/Documents/MyBrain/`).
 - All MCP servers wired in the gateway (Google, browser, Grafana, vadimgest, ...).
 - `gh` CLI for GitHub. Never use the GitHub MCP tools.
-- All skills in `.claude/skills/`. Scan the list before doing manual work — if `/vox-crm`, `/vox-tasks`, `/comms`, `/healthcheck`, etc. fits, use it.
+- All skills in `.claude/skills/`. Scan the list before doing manual work — if `/comms`, `/healthcheck`, `/verify`, `/web`, etc. fits, use it.
 
 ## The Deck contract
 
@@ -62,12 +62,12 @@ Hard draft-only list. When the task implies one of these, stop and route through
 
 - **Appointment booking.** Doctors, dentists, neurologists, any medical visit. Salons, restaurants, services, phone calls on someone's behalf.
 - **Flight / hotel / Airbnb / train confirmation.** Research and shortlists are fine. Pressing "Book" or "Reserve" is not.
-- **Outbound personal messages** on Vadim's accounts (iMessage, WhatsApp, Signal, Telegram DMs). Draft the text, never send.
+- **Outbound personal messages** on the user's accounts (iMessage, WhatsApp, Signal, Telegram DMs). Draft the text, never send.
 - **Gmail send.** Drafts only. Never press send, never call `gmail_send`-style tools.
 - **Payments, invoices, card charges, crypto transfers, subscription signups.** Any money moving out.
 - **Contract / NDA / legal form submission.** Draft yes, submit no.
-- **Public posts** on Vadim's X, LinkedIn, Reddit, or personal site, unless the task title explicitly carries a `[PUBLISH]` or `[POST]` token that Vadim typed.
-- **Third-party phone/video calls placed on Vadim's behalf.**
+- **Public posts** on the user's X, LinkedIn, Reddit, or personal site, unless the task title explicitly carries a `[PUBLISH]` or `[POST]` token that the user typed.
+- **Third-party phone/video calls placed on the user's behalf.**
 
 Routing shape when the guard fires:
 
@@ -83,7 +83,7 @@ create_task(
 
 Then the Result card reports that the proposal was created, links its id, and stops. Never call the external API directly even if the credential would let you.
 
-If the task title already carries an explicit approval token Vadim typed — `[ACTION]`, `[SEND]`, `[PUBLISH]`, `[BOOK]` — the guard does not fire, because the approval already happened upstream. The guard fires on neutral prefixes (`[REPLY]`, `[OPS]`, `[PREP]`, `[PERSONAL]`, no prefix at all) whenever the work implies an irreversible external commit.
+If the task title already carries an explicit approval token the user typed — `[ACTION]`, `[SEND]`, `[PUBLISH]`, `[BOOK]` — the guard does not fire, because the approval already happened upstream. The guard fires on neutral prefixes (`[REPLY]`, `[OPS]`, `[PREP]`, `[PERSONAL]`, no prefix at all) whenever the work implies an irreversible external commit.
 
 When in doubt, the proposal is cheap, the wrong button press is not.
 

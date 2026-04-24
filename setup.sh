@@ -37,15 +37,13 @@ if [ -d "$REPO_DIR/.git" ] || [ -f "$REPO_DIR/.git" ]; then
             echo "ERROR: git submodule update failed." >&2
             if grep -qE "Repository not found|could not read Username|Authentication failed" "$SUBMODULE_LOG"; then
                 echo "" >&2
-                echo "The vadimgest submodule is PRIVATE. You need GitHub auth + collaborator access." >&2
+                echo "Couldn't fetch the vadimgest submodule. If the repo is public the network probably failed; if it's a private fork you need GitHub auth." >&2
                 echo "" >&2
-                echo "  1. Make sure Vadim added your GitHub handle as a collaborator on" >&2
-                echo "     github.com/VCasecnikovs/vadimgest (ask him if unsure)." >&2
-                echo "  2. Authenticate git for HTTPS:" >&2
+                echo "  1. Authenticate git for HTTPS (only needed for private forks):" >&2
                 echo "       gh auth login                # if not already signed in" >&2
                 echo "       gh auth setup-git            # configures git credential helper" >&2
                 echo "     Or configure a PAT in ~/.netrc / git credential manager." >&2
-                echo "  3. Re-run ./setup.sh" >&2
+                echo "  2. Re-run ./setup.sh" >&2
             else
                 echo "       Fix network/auth, then re-run ./setup.sh." >&2
             fi

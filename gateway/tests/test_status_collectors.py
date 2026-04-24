@@ -1744,8 +1744,8 @@ class TestCollectSkillChanges:
     def test_parses_git_stat_output(self):
         """Parses git log --stat output correctly."""
         git_output = (
-            "abc123456789012345678901234567890123abcd|2026-03-15 10:00:00 +0200|create skill: vox-crm\n"
-            " .claude/skills/vox-crm/SKILL.md | 50 +\n"
+            "abc123456789012345678901234567890123abcd|2026-03-15 10:00:00 +0200|create skill: example-crm\n"
+            " .claude/skills/example-crm/SKILL.md | 50 +\n"
             " 1 file changed, 50 insertions(+)\n"
         )
 
@@ -1766,10 +1766,10 @@ class TestCollectSkillChanges:
 
         assert len(result) == 1
         assert result[0]["hash"] == "abc123456789012345678901234567890123abcd"
-        assert result[0]["message"] == "create skill: vox-crm"
+        assert result[0]["message"] == "create skill: example-crm"
         assert result[0]["files_changed"] == 1
         assert result[0]["insertions"] == 50
-        assert ".claude/skills/vox-crm/SKILL.md" in result[0]["files"]
+        assert ".claude/skills/example-crm/SKILL.md" in result[0]["files"]
 
     def test_multiple_commits(self):
         """Multiple commits are parsed."""
@@ -2621,12 +2621,12 @@ class TestCollectErrorLearning:
         monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills")
         changes = [
             {
-                "message": "create skill: vox-crm",
-                "files": [".claude/skills/vox-crm/SKILL.md"],
+                "message": "create skill: example-crm",
+                "files": [".claude/skills/example-crm/SKILL.md"],
             }
         ]
         result = sc._collect_error_learning(days=7, qq_markers=[], skill_changes=changes)
-        assert "vox-crm" in result["skills_added"]
+        assert "example-crm" in result["skills_added"]
 
     def test_detects_scenarios_created(self, tmp_path, monkeypatch):
         monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills")

@@ -15,7 +15,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 VAULT_DIR = Path(os.environ.get("OBSIDIAN_VAULT", Path.home() / "Documents/MyBrain"))
-DEALS_DIR = Path(os.environ.get("OBSIDIAN_DEALS_DIR", VAULT_DIR / "Vox Lab" / "Deals"))
+DEALS_DIR = Path(os.environ.get("OBSIDIAN_DEALS_DIR", VAULT_DIR / "Deals"))
 PEOPLE_DIR = VAULT_DIR / "People"
 PEOPLE_STALE_DAYS = 14
 TODAY = date.today()

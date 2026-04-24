@@ -2380,7 +2380,7 @@ async def post_init(application: Application):
     ]
 
     # Add some popular skills (Telegram limits to 100 commands)
-    popular_skills = ['healthcheck', 'vox-deals-report', 'memory', 'signal', 'dayflow']
+    popular_skills = ['healthcheck', 'verify', 'comms', 'voice', 'web']
     skills = get_available_skills()
     for skill in popular_skills:
         if skill in skills:
