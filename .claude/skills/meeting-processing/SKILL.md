@@ -120,7 +120,7 @@ referrer: "[[Referrer]]"       # who introduced, if known
 referrer_fee:
 deal_size: small               # small <$10k, medium $10k-$100k, large >$100k
 deal_type: api                 # data-sale, api, solution, partnership
-owner: Вадим
+owner: Vadims
 owner_fee:
 payment_type:
 last_contact: YYYY-MM-DD

@@ -2,6 +2,7 @@
 
 A personal AI assistant for founders, BD, sales, and CEOs - built on top of [Claude Code](https://claude.com/claude-code).
 
+![Dashboard](docs/images/dashboard-hero.png)
 
 If you're a developer, Claude Code is already a superpower. If your work is mostly deals, meetings, research, and operations - the CLI alone doesn't cut it. Klava is what I built for myself over 9 months to make Claude actually useful for non-code work: a dashboard, a task queue, a knowledge base, proactive jobs, and 40+ skills for real workflows.
 
@@ -27,6 +28,7 @@ That's it. Cron jobs and the Telegram bot stay off until you explicitly enable t
 
 The primary interface. Left side - chat with Klava. Right side - supporting tabs: Deck, Tasks, Health, Views, Skills.
 
+![Chat with quoting](docs/images/chat-quote.png)
 
 Markdown, tables, and SVG render natively. You can quote any part of an agent message like in WhatsApp.
 
@@ -34,19 +36,23 @@ Markdown, tables, and SVG render natively. You can quote any part of an agent me
 
 Every task - proposal, action, result - shows up as a card. One at a time. Done, Skip, Snooze, or open a Session to work on it with Klava.
 
+![Deck](docs/images/deck.png)
 
 When Klava finishes a delegated task, she drops a Result card back on the Deck.
 
+![Result card](docs/images/result-card.png)
 
 ### Views for interactive reports
 
 Some things don't fit in a chat - design prototypes, long research, comparison matrices. Klava generates them as interactive HTML pages you can open as views.
 
+![Views](docs/images/views.png)
 
 ### Vadimgest for reacting to the world
 
 Vadimgest is a separate submodule that collects updates from 19 sources (messages, emails, calendar, browser history, etc.) and turns them into LLM-readable feeds. A heartbeat job reads it every 30 minutes and decides what to do: create tasks, update the knowledge base, or act without you.
 
+![Vadimgest](docs/images/vadimgest.png)
 
 ## How it's built
 
