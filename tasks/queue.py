@@ -513,7 +513,20 @@ def create_task(
     with the same title, producing 28 duplicate [ALERT] rows + matching
     [RESULT] cards. Title-level dedup here means that even if a session
     forgets `execute_after`, the self-re-queue is a no-op.
+
+    Regression: 2026-04-25 a `[PROPOSAL]` task created via the documented
+    routing shape (no explicit `type=`) landed with default `type="task"`,
+    so `get_pending()` did not filter it and the consumer re-spawned an
+    executor on it. Any title prefixed `[PROPOSAL]` is forced to
+    `type="proposal"` + `proposal_status="pending"` here so a caller that
+    follows the legacy doctrine can no longer leak a proposal into the
+    executable queue. Pass an explicit non-default `type=` to opt out.
     """
+    if title.startswith("[PROPOSAL]") and type == "task":
+        type = "proposal"
+        if not proposal_status:
+            proposal_status = "pending"
+
     lid = list_id or _list_id()
     task_notes = body or notes
 
@@ -1319,6 +1332,9 @@ def get_pending(tasks: List[Task]) -> List[Task]:
     Excludes:
       - [PROPOSAL] cards with `proposal_status: pending` — those need
         explicit approval before the consumer can execute them.
+      - Any task whose title starts with `[PROPOSAL]` regardless of `type`
+        — defense in depth against rows that landed with the wrong `type`
+        because a caller forgot the kwarg (see 2026-04-25 regression).
       - [RESULT] cards — those are Deck-only informational cards; the
         consumer should never try to "execute" a result report.
       - Tasks with `execute_after` still in the future — scheduled work
@@ -1330,6 +1346,7 @@ def get_pending(tasks: List[Task]) -> List[Task]:
         if t.status == "pending"
         and t.type != "result"
         and not (t.type == "proposal" and (t.proposal_status or "pending") == "pending")
+        and not (t.title or "").lstrip().startswith("[PROPOSAL]")
         and not is_deferred(t)
     ]
     pending.sort(key=lambda t: PRIORITY_ORDER.get(t.priority, 1))

@@ -1389,3 +1389,122 @@ class TestConvertInPlace:
             assert "gt-missing" in str(e)
         else:
             raise AssertionError("expected ValueError for missing task")
+
+
+# Regression: 2026-04-25 - the documented executor routing shape called
+# `create_task(title="[PROPOSAL] ...", priority="high", source="consumer",
+# body=...)` without `type="proposal"`. The row landed with default
+# `type="task"`, slipped past `get_pending()`'s proposal filter, and the
+# consumer re-spawned an executor on it. Concrete repro: GTask
+# ZmpVa2diYlVlU0RZQXcxRw ("[PROPOSAL] TG reply to Andrew (0xwasian) -
+# propose call slots") was re-executed on Apr 25 ~20:00 EEST.
+class TestProposalTitleGuard:
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_create_task_forces_proposal_type_from_title(
+        self, mock_list, mock_gog
+    ):
+        """Legacy doctrine call shape must still produce a proposal row."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "p-1"}})
+        create_task(
+            "[PROPOSAL] TG reply to Andrew - propose call slots",
+            priority="high",
+            source="consumer",
+            body="## Draft\nHey Andrew, here are some slots ...",
+        )
+        call_args = mock_gog.call_args[0]
+        notes_arg = next(a for a in call_args if a.startswith("--notes="))
+        assert "type: proposal" in notes_arg
+        assert "proposal_status: pending" in notes_arg
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_create_task_respects_explicit_non_default_type(
+        self, mock_list, mock_gog
+    ):
+        """An explicit `type=` other than "task" must not be overridden by
+        the title prefix - lets a caller emit a proposal-titled result/etc.
+        if they really mean to."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "x-1"}})
+        create_task(
+            "[PROPOSAL] something",
+            priority="low",
+            source="consumer",
+            type="result",
+        )
+        call_args = mock_gog.call_args[0]
+        notes_arg = next(a for a in call_args if a.startswith("--notes="))
+        assert "type: result" in notes_arg
+        assert "proposal_status" not in notes_arg
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_create_task_respects_explicit_proposal_status(
+        self, mock_list, mock_gog
+    ):
+        """Caller-supplied proposal_status wins over the auto default."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "p-2"}})
+        create_task(
+            "[PROPOSAL] already approved upstream",
+            priority="high",
+            source="consumer",
+            proposal_status="approved",
+        )
+        call_args = mock_gog.call_args[0]
+        notes_arg = next(a for a in call_args if a.startswith("--notes="))
+        assert "type: proposal" in notes_arg
+        assert "proposal_status: approved" in notes_arg
+
+    def test_get_pending_excludes_proposal_titled_task(self):
+        """Defense in depth: even if a row landed with default `type="task"`
+        because some old skill skipped the kwarg, a `[PROPOSAL]`-titled
+        task must not be picked up by the consumer."""
+        tasks = [
+            # Mis-typed legacy row - type="task" (default), not "proposal"
+            Task(
+                id="leaky",
+                title="[PROPOSAL] TG reply to Andrew - propose call slots",
+                status="pending",
+                priority="high",
+                type="task",
+            ),
+            Task(id="ok", title="[ACTION] real work",
+                 status="pending", priority="high"),
+        ]
+        pending = get_pending(tasks)
+        ids = [t.id for t in pending]
+        assert "leaky" not in ids
+        assert "ok" in ids
+
+    def test_get_pending_still_excludes_well_formed_proposal(self):
+        """The original filter still works for properly-typed proposals."""
+        tasks = [
+            Task(
+                id="prop",
+                title="[PROPOSAL] something",
+                status="pending",
+                priority="high",
+                type="proposal",
+                proposal_status="pending",
+            ),
+        ]
+        assert get_pending(tasks) == []
+
+    def test_get_pending_ignores_leading_whitespace(self):
+        """Title with leading whitespace must still be filtered."""
+        tasks = [
+            Task(
+                id="ws",
+                title="  [PROPOSAL] padded",
+                status="pending",
+                priority="medium",
+                type="task",
+            ),
+        ]
+        assert get_pending(tasks) == []

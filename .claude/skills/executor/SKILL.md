@@ -69,17 +69,20 @@ Hard draft-only list. When the task implies one of these, stop and route through
 - **Public posts** on the user's X, LinkedIn, Reddit, or personal site, unless the task title explicitly carries a `[PUBLISH]` or `[POST]` token that the user typed.
 - **Third-party phone/video calls placed on the user's behalf.**
 
-Routing shape when the guard fires:
+Routing shape when the guard fires (use `create_proposal()` - it sets the proposal type and pending status for you so the consumer cannot pick the row up as executable):
 
 ```python
-from tasks.queue import create_task
-create_task(
-    title="[PROPOSAL] <same intent, unambiguous>",
+from tasks.queue import create_proposal
+create_proposal(
+    title="<same intent, unambiguous>",  # [PROPOSAL] prefix added automatically
+    plan="## Draft\n<ready-to-ship artifact>\n\n## What I need approved\n<one sentence>\n\n## Source\n<links/paths the draft was built from>",
+    shape="reply",  # or "act" / "approve" / "review" / "decide" / "read"
     priority="high",
     source="consumer",
-    body="## Draft\n<ready-to-ship artifact>\n\n## What I need approved\n<one sentence>\n\n## Source\n<links/paths the draft was built from>",
 )
 ```
+
+If you reach for `create_task()` directly, pass `type="proposal", proposal_status="pending"` explicitly - otherwise the row lands with default `type="task"` and the consumer will try to execute it.
 
 Then the Result card reports that the proposal was created, links its id, and stops. Never call the external API directly even if the credential would let you.
 
