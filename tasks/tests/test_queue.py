@@ -28,8 +28,27 @@ def _isolate_snapshot(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(_snapshot_module, "SNAPSHOT_DIR", tmp_path)
     _snapshot_module.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _stub_llm_matcher(monkeypatch, request):
+    """Stub the LLM topic matcher so tests don't spawn `claude` CLI.
+
+    Returning [] forces _find_topic_match to fall back to token-Jaccard,
+    which is what the existing tests were written against. Tests that want
+    LLM behavior should patch `tasks.llm_matcher.topic_matches_llm` directly.
+
+    Skips for `TestLLMMatcherUnit`, which exercises the matcher's own
+    subprocess plumbing and needs the real function reference.
+    """
+    cls = getattr(request.node, "cls", None)
+    if cls is not None and cls.__name__ == "TestLLMMatcherUnit":
+        yield
+        return
+    from tasks import llm_matcher
+    monkeypatch.setattr(llm_matcher, "topic_matches_llm",
+                        lambda *args, **kwargs: [])
     yield
-    _snapshot_module.reset_for_tests()
 
 
 class TestParseFrontmatter:
@@ -861,6 +880,406 @@ class TestResultCards:
         title_idx = call_args.index("--title")
         # Must not double-prefix
         assert call_args[title_idx + 1] == "[RESULT] Already tagged"
+
+
+# Topic-level dedup for [RESULT] cards. Heartbeat re-emits the same observation
+# each cycle and the consumer adds another card for the same parent — the Deck
+# ends up with multiple cards on one topic ("10 cards about the same thing",
+# 2026-04-25). create_result() now collapses these by appending an Update
+# section to the existing card or skipping when the user already acked it.
+class TestResultTopicDedup:
+    def _now_iso(self, hours_ago=0):
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_pending_appends_update(self, mock_list, mock_gog):
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-old",
+            title="[RESULT] Vladislav - parents aging",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=2),
+            body="#result\n\nOriginal context.",
+        )
+        # Two list_tasks calls: one in _find_topic_match (include_completed=True),
+        # one in _append_to_result (include_completed=False).
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id=None,
+            title="Reply to Vladislav - parents aging (TG)",
+            body="## What was done\nDrafted reply.",
+        )
+        assert rid == "r-old"
+        # Must NOT have created a new task (no `tasks add` call).
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert add_calls == []
+        # Must have updated the existing task notes (one `tasks update` call).
+        update_calls = [c for c in mock_gog.call_args_list
+                        if len(c.args) > 1 and c.args[1] == "update"]
+        assert len(update_calls) == 1
+        update_args = update_calls[0].args
+        notes_arg = next(a for a in update_args if a.startswith("--notes="))
+        # New body appended under an Update section.
+        assert "## Update" in notes_arg
+        assert "Drafted reply." in notes_arg
+        # Original body preserved.
+        assert "Original context." in notes_arg
+        # result_status bumped back to "new" so Deck re-surfaces it.
+        assert "result_status: new" in notes_arg
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_recent_completed_skips(self, mock_list, mock_gog):
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-acked",
+            title="[RESULT] Eldil AI NCNDA - sign DocuSign",
+            type="result",
+            status="done",
+            result_status="new",
+            created=self._now_iso(hours_ago=10),
+            completed_at=self._now_iso(hours_ago=4),
+            body="#result\n\nNCNDA context.",
+        )
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id=None,
+            title="Sign Eldil AI NCNDA - DocuSign link ready",
+            body="## What was done\nSigned.",
+        )
+        assert rid == "r-acked"
+        # No writes at all — user already acked the topic.
+        write_calls = [c for c in mock_gog.call_args_list
+                       if len(c.args[0]) > 1
+                       and c.args[0][1] in ("add", "update", "done")]
+        assert write_calls == []
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_no_topic_match_creates_fresh(self, mock_list, mock_gog):
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-other",
+            title="[RESULT] HighTower - reschedule call with Ilya",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=1),
+        )
+        mock_list.return_value = [existing]
+        mock_gog.return_value = json.dumps({"task": {"id": "r-fresh"}})
+        rid = create_result(
+            parent_task_id=None,
+            title="Sign Eldil AI NCNDA - DocuSign link ready",
+            body="## What was done\nSigned.",
+        )
+        assert rid == "r-fresh"
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_dedup_topic_false_forces_fresh(self, mock_list, mock_gog):
+        """Pulse and other periodic digests opt out — always want a fresh card."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-old-pulse",
+            title="[RESULT] Pulse digest tech AI HackerNews",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=6),
+        )
+        mock_list.return_value = [existing]
+        mock_gog.return_value = json.dumps({"task": {"id": "r-pulse-new"}})
+        rid = create_result(
+            parent_task_id=None,
+            title="Pulse digest tech AI HackerNews",
+            body="## Digest\nFresh content.",
+            dedup_topic=False,
+        )
+        assert rid == "r-pulse-new"
+        # list_tasks must not be consulted when dedup_topic=False.
+        mock_list.assert_not_called()
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_via_same_parent(self, mock_list, mock_gog):
+        """Same explicit parent task wins over title heuristic — guaranteed match."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-parent-match",
+            title="[RESULT] Totally different wording",
+            type="result",
+            status="pending",
+            result_of="gt-parent-99",
+            result_status="new",
+            created=self._now_iso(hours_ago=1),
+            body="#result\n\nFirst report.",
+        )
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id="gt-parent-99",
+            title="Another summary entirely",
+            body="## What was done\nFollow-up work.",
+        )
+        assert rid == "r-parent-match"
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert add_calls == []
+        update_calls = [c for c in mock_gog.call_args_list
+                        if len(c.args) > 1 and c.args[1] == "update"]
+        assert len(update_calls) == 1
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_outside_window_creates_fresh(self, mock_list, mock_gog):
+        """Old RESULT cards (>7 days) don't block a fresh card on the same topic."""
+        from tasks.queue import create_result
+        old = Task(
+            id="r-stale",
+            title="[RESULT] Vladislav - parents aging",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=24 * 30),  # 30 days old
+        )
+        mock_list.return_value = [old]
+        mock_gog.return_value = json.dumps({"task": {"id": "r-renewed"}})
+        rid = create_result(
+            parent_task_id=None,
+            title="Reply to Vladislav - parents aging again",
+            body="## What was done\nNew reply.",
+        )
+        assert rid == "r-renewed"
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
+
+class TestTopicSimilarity:
+    def test_real_world_match_pairs(self):
+        from tasks.queue import _topic_similar
+        match_pairs = [
+            ("[RESULT] Eldil AI NCNDA - review + sign DocuSign",
+             "[RESULT] Sign Eldil AI NCNDA - DocuSign link ready"),
+            ("[RESULT] HighTower - reschedule call with Ilya",
+             "[RESULT] HighTower - TG reschedule msg to Ilya"),
+            ("[RESULT] Reply to Vladislav - parents aging (TG)",
+             "[RESULT] Vladislav - parents aging (late night)"),
+        ]
+        for a, b in match_pairs:
+            assert _topic_similar(a, b), f"expected match: {a!r} vs {b!r}"
+
+    def test_real_world_non_match_pairs(self):
+        from tasks.queue import _topic_similar
+        non_match_pairs = [
+            ("[RESULT] HighTower - reschedule call with Ilya",
+             "[RESULT] Sign Eldil AI NCNDA"),
+            ("[RESULT] Pulse - Apr 24, 14:00 EET",
+             "[RESULT] Pulse - Apr 24, 20:00 EET"),
+            ("[RESULT] Reply to Shawn Schneider on call time",
+             "[RESULT] SF in-person with Shawn Schneider"),
+        ]
+        for a, b in non_match_pairs:
+            assert not _topic_similar(a, b), f"expected NO match: {a!r} vs {b!r}"
+
+
+# LLM-as-matcher: when token Jaccard misses real same-topic pairs (different
+# verbs, different languages, single shared entity), the LLM picks them up.
+# `_find_topic_match` calls `tasks.llm_matcher.topic_matches_llm` first and
+# only falls back to token similarity when the LLM call fails or returns [].
+class TestLLMMatcherIntegration:
+    def _now_iso(self, hours_ago=0):
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    @patch("tasks.llm_matcher.topic_matches_llm")
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_match_overrides_token_miss(self, mock_list, mock_gog, mock_llm):
+        """LLM catches a same-topic pair that token Jaccard would miss."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-llm-only",
+            title="[RESULT] Physical Intelligence - review pitch memo",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=2),
+            body="#result\n\nPitch memo draft.",
+        )
+        mock_list.return_value = [existing]
+        # Token matcher would fail; LLM returns the match.
+        mock_llm.return_value = ["r-llm-only"]
+        rid = create_result(
+            parent_task_id=None,
+            title="Draft Physical Intelligence XOV force sensing pitch memo",
+            body="## What was done\nAdded XOV details.",
+        )
+        assert rid == "r-llm-only"
+        # Verify LLM was consulted with the right shape.
+        mock_llm.assert_called_once()
+        call_kwargs = mock_llm.call_args
+        candidates = call_kwargs.args[1] if len(call_kwargs.args) > 1 else \
+                     call_kwargs.kwargs.get("candidates")
+        assert any(cid == "r-llm-only" for cid, _ in candidates)
+        # Update path, not new task add.
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert add_calls == []
+
+    @patch("tasks.llm_matcher.topic_matches_llm")
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_returns_none_falls_back_to_token(self, mock_list, mock_gog, mock_llm):
+        """When LLM says 'NONE' (returns []), token similarity still runs."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-token",
+            title="[RESULT] Reply to Vladislav - parents aging (TG)",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=2),
+            body="#result\n\nReply drafted.",
+        )
+        mock_list.return_value = [existing]
+        mock_llm.return_value = []  # LLM said no match
+        rid = create_result(
+            parent_task_id=None,
+            title="Vladislav - parents aging (late night follow-up)",
+            body="## What was done\nFurther context.",
+        )
+        # Token Jaccard finds it (vladislav, parents, aging shared).
+        assert rid == "r-token"
+
+    @patch("tasks.llm_matcher.topic_matches_llm")
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_same_parent_skips_llm_call(self, mock_list, mock_gog, mock_llm):
+        """Same explicit parent wins outright — no LLM call needed."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-parent",
+            title="[RESULT] Totally different wording",
+            type="result",
+            status="pending",
+            result_of="gt-parent-77",
+            result_status="new",
+            created=self._now_iso(hours_ago=1),
+        )
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id="gt-parent-77",
+            title="Different title entirely",
+            body="## What was done\nWork.",
+        )
+        assert rid == "r-parent"
+        mock_llm.assert_not_called()
+
+
+class TestLLMMatcherUnit:
+    """Unit tests for tasks.llm_matcher — parsing, caching, no subprocess."""
+
+    def test_parses_comma_separated_indices(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 0
+            stdout = "1, 3"
+            stderr = ""
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: FakeResult())
+        candidates = [("a", "Apple"), ("b", "Banana"), ("c", "Cherry")]
+        out = llm_matcher.topic_matches_llm("fruit basket", candidates)
+        assert out == ["a", "c"]
+
+    def test_handles_none_output(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 0
+            stdout = "NONE"
+            stderr = ""
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: FakeResult())
+        out = llm_matcher.topic_matches_llm("foo", [("a", "x"), ("b", "y")])
+        assert out == []
+
+    def test_subprocess_failure_returns_empty(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 1
+            stdout = ""
+            stderr = "auth error"
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: FakeResult())
+        out = llm_matcher.topic_matches_llm("foo", [("a", "x")])
+        assert out == []
+
+    def test_timeout_returns_empty(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        def boom(*a, **kw):
+            raise llm_matcher.subprocess.TimeoutExpired(cmd="claude", timeout=1)
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run", boom)
+        out = llm_matcher.topic_matches_llm("foo", [("a", "x")])
+        assert out == []
+
+    def test_cache_hit_avoids_subprocess(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 0
+            stdout = "1"
+            stderr = ""
+
+        call_count = {"n": 0}
+
+        def fake_run(*a, **kw):
+            call_count["n"] += 1
+            return FakeResult()
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run", fake_run)
+        candidates = [("x", "first")]
+        a = llm_matcher.topic_matches_llm("topic", candidates)
+        b = llm_matcher.topic_matches_llm("topic", candidates)
+        assert a == ["x"]
+        assert b == ["x"]
+        assert call_count["n"] == 1  # second call was a cache hit
+
+    def test_empty_candidates_short_circuits(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+        # subprocess.run should never be called for empty input.
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: pytest.fail("should not run"))
+        out = llm_matcher.topic_matches_llm("topic", [])
+        assert out == []
 
 
 # In-place conversion: Deck's Delegate/Proposal flow mutates the dispatched
