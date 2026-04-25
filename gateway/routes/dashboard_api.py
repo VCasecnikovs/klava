@@ -914,8 +914,12 @@ def api_klava_create():
                     result["launched"] = True
                     result["tab_id"] = tab_id
             except KlavaLaunchContention as e:
+                # Lock contention on auto-launch is not a failure — the task
+                # was queued. The cron consumer (every 5 min) will pick it up.
+                # Return 200 so the dashboard treats it as success; the
+                # `launched: False` + `launch_error` fields let callers
+                # surface a soft notice if they want.
                 result["launch_error"] = str(e)
-                return jsonify(result), 409
 
         return jsonify(result)
     except Exception as e:
