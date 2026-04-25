@@ -863,6 +863,217 @@ class TestResultCards:
         assert call_args[title_idx + 1] == "[RESULT] Already tagged"
 
 
+# Topic-level dedup for [RESULT] cards. Heartbeat re-emits the same observation
+# each cycle and the consumer adds another card for the same parent — the Deck
+# ends up with multiple cards on one topic ("10 cards about the same thing",
+# 2026-04-25). create_result() now collapses these by appending an Update
+# section to the existing card or skipping when the user already acked it.
+class TestResultTopicDedup:
+    def _now_iso(self, hours_ago=0):
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_pending_appends_update(self, mock_list, mock_gog):
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-old",
+            title="[RESULT] Vladislav - parents aging",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=2),
+            body="#result\n\nOriginal context.",
+        )
+        # Two list_tasks calls: one in _find_topic_match (include_completed=True),
+        # one in _append_to_result (include_completed=False).
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id=None,
+            title="Reply to Vladislav - parents aging (TG)",
+            body="## What was done\nDrafted reply.",
+        )
+        assert rid == "r-old"
+        # Must NOT have created a new task (no `tasks add` call).
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert add_calls == []
+        # Must have updated the existing task notes (one `tasks update` call).
+        update_calls = [c for c in mock_gog.call_args_list
+                        if len(c.args) > 1 and c.args[1] == "update"]
+        assert len(update_calls) == 1
+        update_args = update_calls[0].args
+        notes_arg = next(a for a in update_args if a.startswith("--notes="))
+        # New body appended under an Update section.
+        assert "## Update" in notes_arg
+        assert "Drafted reply." in notes_arg
+        # Original body preserved.
+        assert "Original context." in notes_arg
+        # result_status bumped back to "new" so Deck re-surfaces it.
+        assert "result_status: new" in notes_arg
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_recent_completed_skips(self, mock_list, mock_gog):
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-acked",
+            title="[RESULT] Eldil AI NCNDA - sign DocuSign",
+            type="result",
+            status="done",
+            result_status="new",
+            created=self._now_iso(hours_ago=10),
+            completed_at=self._now_iso(hours_ago=4),
+            body="#result\n\nNCNDA context.",
+        )
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id=None,
+            title="Sign Eldil AI NCNDA - DocuSign link ready",
+            body="## What was done\nSigned.",
+        )
+        assert rid == "r-acked"
+        # No writes at all — user already acked the topic.
+        write_calls = [c for c in mock_gog.call_args_list
+                       if len(c.args[0]) > 1
+                       and c.args[0][1] in ("add", "update", "done")]
+        assert write_calls == []
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_no_topic_match_creates_fresh(self, mock_list, mock_gog):
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-other",
+            title="[RESULT] HighTower - reschedule call with Ilya",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=1),
+        )
+        mock_list.return_value = [existing]
+        mock_gog.return_value = json.dumps({"task": {"id": "r-fresh"}})
+        rid = create_result(
+            parent_task_id=None,
+            title="Sign Eldil AI NCNDA - DocuSign link ready",
+            body="## What was done\nSigned.",
+        )
+        assert rid == "r-fresh"
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_dedup_topic_false_forces_fresh(self, mock_list, mock_gog):
+        """Pulse and other periodic digests opt out — always want a fresh card."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-old-pulse",
+            title="[RESULT] Pulse digest tech AI HackerNews",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=6),
+        )
+        mock_list.return_value = [existing]
+        mock_gog.return_value = json.dumps({"task": {"id": "r-pulse-new"}})
+        rid = create_result(
+            parent_task_id=None,
+            title="Pulse digest tech AI HackerNews",
+            body="## Digest\nFresh content.",
+            dedup_topic=False,
+        )
+        assert rid == "r-pulse-new"
+        # list_tasks must not be consulted when dedup_topic=False.
+        mock_list.assert_not_called()
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_via_same_parent(self, mock_list, mock_gog):
+        """Same explicit parent task wins over title heuristic — guaranteed match."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-parent-match",
+            title="[RESULT] Totally different wording",
+            type="result",
+            status="pending",
+            result_of="gt-parent-99",
+            result_status="new",
+            created=self._now_iso(hours_ago=1),
+            body="#result\n\nFirst report.",
+        )
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id="gt-parent-99",
+            title="Another summary entirely",
+            body="## What was done\nFollow-up work.",
+        )
+        assert rid == "r-parent-match"
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert add_calls == []
+        update_calls = [c for c in mock_gog.call_args_list
+                        if len(c.args) > 1 and c.args[1] == "update"]
+        assert len(update_calls) == 1
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_topic_match_outside_window_creates_fresh(self, mock_list, mock_gog):
+        """Old RESULT cards (>7 days) don't block a fresh card on the same topic."""
+        from tasks.queue import create_result
+        old = Task(
+            id="r-stale",
+            title="[RESULT] Vladislav - parents aging",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=24 * 30),  # 30 days old
+        )
+        mock_list.return_value = [old]
+        mock_gog.return_value = json.dumps({"task": {"id": "r-renewed"}})
+        rid = create_result(
+            parent_task_id=None,
+            title="Reply to Vladislav - parents aging again",
+            body="## What was done\nNew reply.",
+        )
+        assert rid == "r-renewed"
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
+
+class TestTopicSimilarity:
+    def test_real_world_match_pairs(self):
+        from tasks.queue import _topic_similar
+        match_pairs = [
+            ("[RESULT] Eldil AI NCNDA - review + sign DocuSign",
+             "[RESULT] Sign Eldil AI NCNDA - DocuSign link ready"),
+            ("[RESULT] HighTower - reschedule call with Ilya",
+             "[RESULT] HighTower - TG reschedule msg to Ilya"),
+            ("[RESULT] Reply to Vladislav - parents aging (TG)",
+             "[RESULT] Vladislav - parents aging (late night)"),
+        ]
+        for a, b in match_pairs:
+            assert _topic_similar(a, b), f"expected match: {a!r} vs {b!r}"
+
+    def test_real_world_non_match_pairs(self):
+        from tasks.queue import _topic_similar
+        non_match_pairs = [
+            ("[RESULT] HighTower - reschedule call with Ilya",
+             "[RESULT] Sign Eldil AI NCNDA"),
+            ("[RESULT] Pulse - Apr 24, 14:00 EET",
+             "[RESULT] Pulse - Apr 24, 20:00 EET"),
+            ("[RESULT] Reply to Shawn Schneider on call time",
+             "[RESULT] SF in-person with Shawn Schneider"),
+        ]
+        for a, b in non_match_pairs:
+            assert not _topic_similar(a, b), f"expected NO match: {a!r} vs {b!r}"
+
+
 # In-place conversion: Deck's Delegate/Proposal flow mutates the dispatched
 # [ACTION] / [RESEARCH] row into a [RESULT] / [PROPOSAL] card keeping the same
 # GTask id, so the user sees one card evolve instead of two.

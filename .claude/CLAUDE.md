@@ -237,6 +237,8 @@ When writing a skill or a cron job that produces content the user should see:
 - Do not set a `feed_topic` in `cron/jobs.json` for result-emitting jobs. Missing `feed_topic` routes to "General" and skips the TG send by design.
 - Keep the result body in the structured shape the executor doctrine uses: `## What was done / ## Key findings / ## Artifacts / ## Suggested next step`.
 
+**Result topic dedup (default on).** `create_result()` scans recent (≤7d) result cards for one on the same topic — same explicit parent or sufficient title-token overlap. If a pending match exists, the new body is appended as a timestamped Update section and `result_status` resets to `new`. If a match was acked (completed) within 48h, the new card is skipped entirely — user already saw it. Pass `dedup_topic=False` for inherently periodic cards (Pulse digests, daily reflections) that always want a fresh row.
+
 ### Heartbeat architecture
 
 - **Cron-scheduler is the sole TG sender.** The heartbeat script outputs to stdout only; the scheduler formats and posts.

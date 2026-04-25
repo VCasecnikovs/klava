@@ -387,6 +387,89 @@ def _normalize_title(title: str) -> str:
     return s
 
 
+# Topic similarity for [RESULT] card dedup. Heartbeat re-emits the same
+# observation each cycle and the consumer adds its own RESULT for the same
+# parent — the Deck ends up with multiple cards on one topic. We collapse
+# them by mutating the existing card instead of stacking another row.
+_TOPIC_FILLER = frozenset({
+    # English structural / filler verbs
+    "reply", "to", "from", "with", "for", "the", "a", "an", "and", "or",
+    "of", "on", "in", "at", "by", "via", "about", "post", "pre", "re",
+    "follow", "followup", "ping", "check", "review", "send", "sent",
+    "fix", "research", "investigate", "draft", "sign", "confirm", "create",
+    "complete", "update", "call", "meet", "meeting", "discuss", "ask",
+    "tell", "share", "schedule", "reschedule", "remind", "do", "make",
+    "get", "got", "go", "let", "set", "ready", "done", "new", "old",
+    "today", "tonight", "now", "asap", "late", "night", "morning",
+    "evening", "afternoon", "tomorrow", "yesterday",
+    # Russian filler
+    "ответить", "напомнить", "проверить", "связаться", "отправить",
+    "написать", "позвонить", "уточнить", "подтвердить", "согласовать",
+    "обсудить", "сделать", "начать", "закончить", "финиш", "стоп",
+    # Channel/source noise
+    "tg", "telegram", "signal", "gmail", "email", "whatsapp", "imessage",
+    "discord", "slack", "sms",
+    # Months (timestamps in titles like "Apr 25" shouldn't drive matches)
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct",
+    "nov", "dec",
+    # Timezones / time-format noise
+    "eet", "eest", "pst", "pdt", "est", "edt", "utc", "gmt", "msk",
+    # Common adjectives that don't carry topic
+    "good", "bad", "ok", "yes", "no", "maybe",
+})
+
+_TAG_RE = re.compile(r"^\[[A-Za-z][A-Za-z\s]*\]\s*")
+# Latin + Russian word characters; digits are tokenized but filtered below.
+_TOKEN_RE = re.compile(r"[\wЀ-ӿ]+", re.UNICODE)
+
+
+def _extract_topic_tokens(title: str) -> set:
+    """Pull substantive content tokens from a title for topic comparison.
+
+    Drops [TAG] prefixes (possibly stacked), filler verbs, channel names,
+    months, timezones, and pure-digit timestamps. Keeps entity tokens
+    (people, companies) which are what actually identify a topic.
+    """
+    s = unicodedata.normalize("NFKC", title or "")
+    s = s.translate(_DEDUP_DASHES)
+    while True:
+        new = _TAG_RE.sub("", s)
+        if new == s:
+            break
+        s = new
+    out = set()
+    for tok in _TOKEN_RE.findall(s.lower()):
+        if len(tok) <= 1:
+            continue
+        if tok.isdigit():
+            continue
+        if tok in _TOPIC_FILLER:
+            continue
+        out.add(tok)
+    return out
+
+
+def _topic_similar(a: str, b: str, threshold: float = 0.5,
+                   min_shared: int = 2) -> bool:
+    """True if titles `a` and `b` are about the same topic.
+
+    Token Jaccard ≥ threshold over content tokens AND at least `min_shared`
+    tokens in common. Two-token floor avoids false positives where titles
+    happen to share one common word like an entity name in unrelated work.
+    """
+    ta = _extract_topic_tokens(a)
+    tb = _extract_topic_tokens(b)
+    if not ta or not tb:
+        return False
+    shared = ta & tb
+    if len(shared) < min_shared:
+        return False
+    union = ta | tb
+    if not union:
+        return False
+    return len(shared) / len(union) >= threshold
+
+
 def create_task(
     title: str,
     notes: str = "",
@@ -585,6 +668,7 @@ def create_result(
     criticality: Optional[int] = None,
     session_id: Optional[str] = None,
     list_id: str = None,
+    dedup_topic: bool = True,
 ) -> str:
     """Create a `[RESULT]` card reporting on finished work.
 
@@ -598,6 +682,15 @@ def create_result(
         `None` for standalone informational cards (Pulse digest, reflection
         summary, ad-hoc findings).
 
+    Topic dedup (default on): before creating a fresh row, scan recent
+    RESULT cards for one on the same topic — same explicit parent or
+    sufficient title-token overlap. If a pending match exists, append the
+    new body as a timestamped Update section and refresh `result_status`
+    to `new` instead of stacking another card. If a recently-acked match
+    exists (user already completed it within 48h), skip creation entirely.
+    Pass `dedup_topic=False` for cards that are inherently periodic and
+    should always be fresh (Pulse digests, daily reflections, etc.).
+
     Args:
         parent_task_id: GTask ID of the finished task being reported on,
             or `None` for standalone informational cards.
@@ -608,9 +701,13 @@ def create_result(
         priority: default "low" — results aren't urgent by default.
         source: default "consumer".
         criticality: optional 0-100 score.
+        dedup_topic: if True (default), merge into an existing same-topic
+            RESULT card instead of creating a duplicate. Set False for
+            periodic digest cards that always want a fresh row.
 
     Returns:
-        The created GTask ID.
+        The created GTask ID, or the id of the existing card that was
+        updated/skipped when topic dedup fires.
     """
     tag_title = title if title.startswith("[RESULT]") else f"[RESULT] {title}"
     tags_joined = ",".join(mode_tags) if mode_tags else None
@@ -619,6 +716,34 @@ def create_result(
     # extractHashtags() and vadimgest FTS can match on #result.
     if not body_text.lstrip().startswith("#result"):
         body_text = "#result\n\n" + body_text if body_text else "#result\n"
+
+    if dedup_topic:
+        match = _find_topic_match(parent_task_id, tag_title, list_id=list_id)
+        if match is not None:
+            existing_id, mode = match
+            if mode == "skip":
+                print(
+                    f"[tasks.queue] result topic dedup: user already acked "
+                    f"{existing_id} on same topic; skipping new {tag_title!r}",
+                    file=sys.stderr,
+                )
+                return existing_id
+            if mode == "update":
+                try:
+                    _append_to_result(existing_id, body_text, list_id=list_id)
+                    print(
+                        f"[tasks.queue] result topic dedup: appended to "
+                        f"existing {existing_id} instead of new {tag_title!r}",
+                        file=sys.stderr,
+                    )
+                    return existing_id
+                except Exception as e:
+                    print(
+                        f"[tasks.queue] result topic dedup: append failed "
+                        f"({e}); falling through to fresh create",
+                        file=sys.stderr,
+                    )
+
     return create_task(
         title=tag_title,
         body=body_text,
@@ -635,6 +760,97 @@ def create_result(
         status="pending",
         list_id=list_id,
     )
+
+
+def _find_topic_match(
+    parent_task_id: Optional[str],
+    tag_title: str,
+    list_id: Optional[str] = None,
+    window_days: int = 7,
+    skip_window_hours: int = 48,
+) -> Optional[tuple]:
+    """Find an existing RESULT card on the same topic.
+
+    Returns `(existing_id, mode)` where mode is:
+      - "update": pending RESULT card; caller should append to it.
+      - "skip":   recently-completed RESULT card (within `skip_window_hours`);
+                  user already acked, don't recreate.
+    Returns None if no match.
+    """
+    try:
+        existing = list_tasks(list_id=list_id, include_completed=True)
+    except Exception as e:
+        print(f"[tasks.queue] topic dedup read failed: {e}", file=sys.stderr)
+        return None
+
+    now = datetime.now(timezone.utc)
+    window_cutoff = now - timedelta(days=window_days)
+    skip_cutoff = now - timedelta(hours=skip_window_hours)
+
+    for t in existing:
+        if t.type != "result":
+            continue
+        ts_str = t.completed_at or t.created
+        if not ts_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if ts < window_cutoff:
+            continue
+
+        same_parent = (
+            parent_task_id is not None
+            and t.result_of is not None
+            and t.result_of == parent_task_id
+        )
+        if not (same_parent or _topic_similar(tag_title, t.title or "")):
+            continue
+
+        if t.status == "pending":
+            return (t.id, "update")
+        if ts >= skip_cutoff:
+            return (t.id, "skip")
+        # Older completed match: user acked long enough ago that fresh
+        # context warrants a new card. Fall through.
+    return None
+
+
+def _append_to_result(
+    task_id: str,
+    new_body: str,
+    list_id: Optional[str] = None,
+) -> None:
+    """Append a timestamped Update section to an existing RESULT card.
+
+    Reads the current task notes, appends `## Update <ISO>\\n<new_body>`,
+    bumps `result_status` to `new` so the Deck re-surfaces it, and persists
+    via `update_task_notes`.
+    """
+    lid = list_id or _list_id()
+    tasks = list_tasks(list_id=lid, include_completed=False)
+    task = next((t for t in tasks if t.id == task_id), None)
+    if task is None:
+        raise ValueError(f"task {task_id} not found in pending list")
+
+    addition = (new_body or "").strip()
+    # Drop the leading #result hashtag from the appended chunk; the parent
+    # already carries it.
+    if addition.startswith("#result"):
+        addition = addition[len("#result"):].lstrip()
+    if not addition:
+        addition = "(no new content)"
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    update_block = f"\n\n## Update {stamp}\n\n{addition}"
+
+    base_body = task.body or ""
+    task.body = (base_body + update_block).strip()
+    task.result_status = "new"
+    task.status = "pending"
+
+    update_task_notes(task_id, task.to_notes(), list_id=lid)
 
 
 def convert_to_result(
