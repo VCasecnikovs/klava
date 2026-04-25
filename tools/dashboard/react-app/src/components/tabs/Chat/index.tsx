@@ -172,6 +172,16 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  // Session identity ref updated SYNCHRONOUSLY by click handlers (handleResumeSession,
+  // handleNewSession, chatStartStream) before any dispatch. Socket event filters use
+  // this instead of stateRef because React state from dispatch isn't visible until
+  // after the next render — events arriving in that window would otherwise see the
+  // previous session's identity and let stale blocks leak into the new conversation.
+  const currentIdsRef = useRef<{ tabId: string | null; claudeSessionId: string | null }>({
+    tabId: state.tabId,
+    claudeSessionId: state.claudeSessionId,
+  });
+
   // --- Changes panel ---
   const [changesOpen, setChangesOpen] = useState(false);
   const allBlocks = useMemo(() => [...historyBlocks, ...realtimeBlocks], [historyBlocks, realtimeBlocks]);
@@ -267,9 +277,12 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     // so we allow either to match.
     const isForeignEvent = (evtTabId?: string): boolean => {
       if (!evtTabId) return false;
-      const s = stateRef.current;
-      if (!s.tabId && !s.claudeSessionId) return false;
-      return evtTabId !== s.tabId && evtTabId !== s.claudeSessionId;
+      const cur = currentIdsRef.current;
+      // No active session => any session-bound event is foreign (welcome screen
+      // shouldn't render anything). With an active session, drop events whose
+      // tab_id matches neither the frontend tabId nor the claude session id.
+      if (!cur.tabId && !cur.claudeSessionId) return true;
+      return evtTabId !== cur.tabId && evtTabId !== cur.claudeSessionId;
     };
 
     const onConnect = () => {
@@ -290,10 +303,19 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     // --- Entity 1: History events ---
 
     const onHistorySnapshot = (data: { blocks: Block[]; session_id?: string; model?: string }) => {
-      const s = stateRef.current;
-      if (data.session_id && s.claudeSessionId && data.session_id !== s.claudeSessionId && data.session_id !== s.tabId) {
-        console.log('[history_snapshot] dropped foreign snapshot for', data.session_id, 'current:', s.claudeSessionId);
-        return;
+      const cur = currentIdsRef.current;
+      if (data.session_id) {
+        // Drop snapshots that don't match the current session, including when no
+        // session is active (welcome screen). Without this, stale snapshots from
+        // a prior session race past React state updates and leak into the new chat.
+        if (!cur.tabId && !cur.claudeSessionId) {
+          console.log('[history_snapshot] dropped snapshot - no active session', data.session_id);
+          return;
+        }
+        if (data.session_id !== cur.claudeSessionId && data.session_id !== cur.tabId) {
+          console.log('[history_snapshot] dropped foreign snapshot for', data.session_id, 'current:', cur.claudeSessionId);
+          return;
+        }
       }
       console.log('[history_snapshot]', data.blocks.length, 'blocks', 'model:', data.model);
 
@@ -554,6 +576,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       if (data.session_id && s.claudeSessionId && data.session_id !== s.claudeSessionId) return;
       console.warn('[session_not_found]', data.session_id);
       // Reset to welcome screen - session no longer exists
+      currentIdsRef.current = { tabId: null, claudeSessionId: null };
       dispatch({ type: 'SET_TAB_ID', tabId: null });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
       dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [] });
@@ -621,6 +644,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     const isNewSession = !currentTabId;
     if (isNewSession) {
       currentTabId = uuid();
+      currentIdsRef.current = { tabId: currentTabId, claudeSessionId: null };
       dispatch({ type: 'SET_TAB_ID', tabId: currentTabId });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
       dispatch({ type: 'ADD_SESSION', session: {
@@ -670,6 +694,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
 
     if (!currentTabId) {
       currentTabId = uuid();
+      currentIdsRef.current = { tabId: currentTabId, claudeSessionId: null };
       dispatch({ type: 'SET_TAB_ID', tabId: currentTabId });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
       dispatch({ type: 'ADD_SESSION', session: {
@@ -761,6 +786,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     if (stateRef.current.realtimeStatus === 'streaming' && socketRef.current) {
       socketRef.current.emit('detach_all');
     }
+    currentIdsRef.current = { tabId: null, claudeSessionId: null };
     dispatch({ type: 'SET_TAB_ID', tabId: null });
     dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
     dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [] });
@@ -852,10 +878,12 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
 
     if (isPendingTab) {
       // Join the in-progress stream: adopt the tab_id, leave claudeSessionId null
+      currentIdsRef.current = { tabId: sid, claudeSessionId: null };
       dispatch({ type: 'SET_TAB_ID', tabId: sid });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
     } else {
       const newTabId = uuid();
+      currentIdsRef.current = { tabId: newTabId, claudeSessionId: sid };
       dispatch({ type: 'SET_TAB_ID', tabId: newTabId });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: sid });
 
