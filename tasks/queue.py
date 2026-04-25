@@ -768,8 +768,15 @@ def _find_topic_match(
     list_id: Optional[str] = None,
     window_days: int = 7,
     skip_window_hours: int = 48,
+    use_llm: bool = True,
 ) -> Optional[tuple]:
     """Find an existing RESULT card on the same topic.
+
+    Two-stage matching:
+      1. Same explicit `result_of` parent → instant match (no LLM call).
+      2. Otherwise the in-window candidate set goes to the LLM matcher
+         (`tasks.llm_matcher.topic_matches_llm`). If the LLM call fails or
+         is disabled, fall back to per-pair token-Jaccard `_topic_similar`.
 
     Returns `(existing_id, mode)` where mode is:
       - "update": pending RESULT card; caller should append to it.
@@ -787,6 +794,10 @@ def _find_topic_match(
     window_cutoff = now - timedelta(days=window_days)
     skip_cutoff = now - timedelta(hours=skip_window_hours)
 
+    # First pass: filter to in-window result cards and check explicit
+    # parent matches up front — those are guaranteed and need no LLM call.
+    in_window: List[tuple] = []  # (Task, ts) tuples
+    parent_match: Optional[tuple] = None
     for t in existing:
         if t.type != "result":
             continue
@@ -800,20 +811,59 @@ def _find_topic_match(
         if ts < window_cutoff:
             continue
 
-        same_parent = (
-            parent_task_id is not None
-            and t.result_of is not None
-            and t.result_of == parent_task_id
-        )
-        if not (same_parent or _topic_similar(tag_title, t.title or "")):
-            continue
+        if (parent_task_id is not None and t.result_of is not None
+                and t.result_of == parent_task_id):
+            # Same parent wins outright. Prefer pending over recent done.
+            if parent_match is None or t.status == "pending":
+                parent_match = (t, ts)
+        in_window.append((t, ts))
 
+    if parent_match is not None:
+        t, ts = parent_match
         if t.status == "pending":
             return (t.id, "update")
         if ts >= skip_cutoff:
             return (t.id, "skip")
-        # Older completed match: user acked long enough ago that fresh
-        # context warrants a new card. Fall through.
+
+    if not in_window:
+        return None
+
+    # Second pass: ask the LLM which in-window candidates are same-topic.
+    matched_ids: set = set()
+    if use_llm:
+        try:
+            from tasks.llm_matcher import topic_matches_llm
+            llm_pairs = [(t.id, t.title or "") for t, _ in in_window]
+            matched_ids = set(topic_matches_llm(tag_title, llm_pairs))
+        except Exception as e:
+            print(f"[tasks.queue] llm_matcher unavailable, "
+                  f"falling back to token similarity: {e}", file=sys.stderr)
+            matched_ids = set()
+
+    # If LLM returned nothing (or was disabled / failed), use token matcher.
+    if not matched_ids:
+        for t, _ in in_window:
+            if _topic_similar(tag_title, t.title or ""):
+                matched_ids.add(t.id)
+
+    if not matched_ids:
+        return None
+
+    # Among matches, prefer pending → "update"; otherwise recent done → "skip".
+    pending_match: Optional[tuple] = None
+    skip_match: Optional[tuple] = None
+    for t, ts in in_window:
+        if t.id not in matched_ids:
+            continue
+        if t.status == "pending" and pending_match is None:
+            pending_match = (t, ts)
+        elif t.status != "pending" and ts >= skip_cutoff and skip_match is None:
+            skip_match = (t, ts)
+
+    if pending_match is not None:
+        return (pending_match[0].id, "update")
+    if skip_match is not None:
+        return (skip_match[0].id, "skip")
     return None
 
 

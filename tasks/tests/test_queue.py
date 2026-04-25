@@ -28,8 +28,27 @@ def _isolate_snapshot(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(_snapshot_module, "SNAPSHOT_DIR", tmp_path)
     _snapshot_module.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _stub_llm_matcher(monkeypatch, request):
+    """Stub the LLM topic matcher so tests don't spawn `claude` CLI.
+
+    Returning [] forces _find_topic_match to fall back to token-Jaccard,
+    which is what the existing tests were written against. Tests that want
+    LLM behavior should patch `tasks.llm_matcher.topic_matches_llm` directly.
+
+    Skips for `TestLLMMatcherUnit`, which exercises the matcher's own
+    subprocess plumbing and needs the real function reference.
+    """
+    cls = getattr(request.node, "cls", None)
+    if cls is not None and cls.__name__ == "TestLLMMatcherUnit":
+        yield
+        return
+    from tasks import llm_matcher
+    monkeypatch.setattr(llm_matcher, "topic_matches_llm",
+                        lambda *args, **kwargs: [])
     yield
-    _snapshot_module.reset_for_tests()
 
 
 class TestParseFrontmatter:
@@ -1072,6 +1091,195 @@ class TestTopicSimilarity:
         ]
         for a, b in non_match_pairs:
             assert not _topic_similar(a, b), f"expected NO match: {a!r} vs {b!r}"
+
+
+# LLM-as-matcher: when token Jaccard misses real same-topic pairs (different
+# verbs, different languages, single shared entity), the LLM picks them up.
+# `_find_topic_match` calls `tasks.llm_matcher.topic_matches_llm` first and
+# only falls back to token similarity when the LLM call fails or returns [].
+class TestLLMMatcherIntegration:
+    def _now_iso(self, hours_ago=0):
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    @patch("tasks.llm_matcher.topic_matches_llm")
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_match_overrides_token_miss(self, mock_list, mock_gog, mock_llm):
+        """LLM catches a same-topic pair that token Jaccard would miss."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-llm-only",
+            title="[RESULT] Physical Intelligence - review pitch memo",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=2),
+            body="#result\n\nPitch memo draft.",
+        )
+        mock_list.return_value = [existing]
+        # Token matcher would fail; LLM returns the match.
+        mock_llm.return_value = ["r-llm-only"]
+        rid = create_result(
+            parent_task_id=None,
+            title="Draft Physical Intelligence XOV force sensing pitch memo",
+            body="## What was done\nAdded XOV details.",
+        )
+        assert rid == "r-llm-only"
+        # Verify LLM was consulted with the right shape.
+        mock_llm.assert_called_once()
+        call_kwargs = mock_llm.call_args
+        candidates = call_kwargs.args[1] if len(call_kwargs.args) > 1 else \
+                     call_kwargs.kwargs.get("candidates")
+        assert any(cid == "r-llm-only" for cid, _ in candidates)
+        # Update path, not new task add.
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert add_calls == []
+
+    @patch("tasks.llm_matcher.topic_matches_llm")
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_returns_none_falls_back_to_token(self, mock_list, mock_gog, mock_llm):
+        """When LLM says 'NONE' (returns []), token similarity still runs."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-token",
+            title="[RESULT] Reply to Vladislav - parents aging (TG)",
+            type="result",
+            status="pending",
+            result_status="new",
+            created=self._now_iso(hours_ago=2),
+            body="#result\n\nReply drafted.",
+        )
+        mock_list.return_value = [existing]
+        mock_llm.return_value = []  # LLM said no match
+        rid = create_result(
+            parent_task_id=None,
+            title="Vladislav - parents aging (late night follow-up)",
+            body="## What was done\nFurther context.",
+        )
+        # Token Jaccard finds it (vladislav, parents, aging shared).
+        assert rid == "r-token"
+
+    @patch("tasks.llm_matcher.topic_matches_llm")
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_same_parent_skips_llm_call(self, mock_list, mock_gog, mock_llm):
+        """Same explicit parent wins outright — no LLM call needed."""
+        from tasks.queue import create_result
+        existing = Task(
+            id="r-parent",
+            title="[RESULT] Totally different wording",
+            type="result",
+            status="pending",
+            result_of="gt-parent-77",
+            result_status="new",
+            created=self._now_iso(hours_ago=1),
+        )
+        mock_list.return_value = [existing]
+        rid = create_result(
+            parent_task_id="gt-parent-77",
+            title="Different title entirely",
+            body="## What was done\nWork.",
+        )
+        assert rid == "r-parent"
+        mock_llm.assert_not_called()
+
+
+class TestLLMMatcherUnit:
+    """Unit tests for tasks.llm_matcher — parsing, caching, no subprocess."""
+
+    def test_parses_comma_separated_indices(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 0
+            stdout = "1, 3"
+            stderr = ""
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: FakeResult())
+        candidates = [("a", "Apple"), ("b", "Banana"), ("c", "Cherry")]
+        out = llm_matcher.topic_matches_llm("fruit basket", candidates)
+        assert out == ["a", "c"]
+
+    def test_handles_none_output(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 0
+            stdout = "NONE"
+            stderr = ""
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: FakeResult())
+        out = llm_matcher.topic_matches_llm("foo", [("a", "x"), ("b", "y")])
+        assert out == []
+
+    def test_subprocess_failure_returns_empty(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 1
+            stdout = ""
+            stderr = "auth error"
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: FakeResult())
+        out = llm_matcher.topic_matches_llm("foo", [("a", "x")])
+        assert out == []
+
+    def test_timeout_returns_empty(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        def boom(*a, **kw):
+            raise llm_matcher.subprocess.TimeoutExpired(cmd="claude", timeout=1)
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run", boom)
+        out = llm_matcher.topic_matches_llm("foo", [("a", "x")])
+        assert out == []
+
+    def test_cache_hit_avoids_subprocess(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        class FakeResult:
+            returncode = 0
+            stdout = "1"
+            stderr = ""
+
+        call_count = {"n": 0}
+
+        def fake_run(*a, **kw):
+            call_count["n"] += 1
+            return FakeResult()
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run", fake_run)
+        candidates = [("x", "first")]
+        a = llm_matcher.topic_matches_llm("topic", candidates)
+        b = llm_matcher.topic_matches_llm("topic", candidates)
+        assert a == ["x"]
+        assert b == ["x"]
+        assert call_count["n"] == 1  # second call was a cache hit
+
+    def test_empty_candidates_short_circuits(self, monkeypatch, tmp_path):
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+        # subprocess.run should never be called for empty input.
+        monkeypatch.setattr(llm_matcher.subprocess, "run",
+                            lambda *a, **kw: pytest.fail("should not run"))
+        out = llm_matcher.topic_matches_llm("topic", [])
+        assert out == []
 
 
 # In-place conversion: Deck's Delegate/Proposal flow mutates the dispatched
