@@ -521,8 +521,40 @@ def create_task(
     `type="proposal"` + `proposal_status="pending"` here so a caller that
     follows the legacy doctrine can no longer leak a proposal into the
     executable queue. Pass an explicit non-default `type=` to opt out.
+
+    Regression: 2026-04-25 (Timur Olevskiy Signal incident) a heartbeat
+    session called `create_task(title="[ACTION] ...", source="heartbeat")`
+    with a literal Signal message body. The executor doctrine treats
+    execution-tag prefixes (`[ACTION]`, `[SEND]`, `[PUBLISH]`, `[BOOK]`,
+    `[POST]`) as user-typed pre-approval, so it sent the message. Those
+    prefixes are now reserved: an automated source cannot mint them
+    directly. Legitimate paths still work — `approve_proposal()` mutates
+    in place (no `create_task` call), and user-driven sources
+    (`manual`, `chat`, `deck-continue`) stay allowlisted. Anything else
+    gets auto-converted to `[PROPOSAL]` with `proposal_status="pending"`.
     """
     if title.startswith("[PROPOSAL]") and type == "task":
+        type = "proposal"
+        if not proposal_status:
+            proposal_status = "pending"
+
+    EXECUTION_TAGS = ("[ACTION]", "[SEND]", "[PUBLISH]", "[BOOK]", "[POST]")
+    USER_DRIVEN_SOURCES = {"manual", "chat", "deck-continue"}
+    if (
+        type == "task"
+        and proposal_status != "approved"
+        and source not in USER_DRIVEN_SOURCES
+        and any(title.startswith(tag) for tag in EXECUTION_TAGS)
+    ):
+        original_tag = next(t for t in EXECUTION_TAGS if title.startswith(t))
+        plain_title = title[len(original_tag):].strip()
+        new_title = f"[PROPOSAL] {plain_title}"
+        print(
+            f"[tasks.queue] execution-tag guard: source={source!r} cannot mint "
+            f"{original_tag} directly. Converting {title!r} -> {new_title!r}.",
+            file=sys.stderr,
+        )
+        title = new_title
         type = "proposal"
         if not proposal_status:
             proposal_status = "pending"

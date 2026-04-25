@@ -1508,3 +1508,127 @@ class TestProposalTitleGuard:
             ),
         ]
         assert get_pending(tasks) == []
+
+
+# Regression: 2026-04-25 — Timur Olevskiy Signal incident. A heartbeat
+# session called `create_task(title="[ACTION] Specify ships article credit
+# for Timur ...", source="heartbeat", body=<signal message>)`. The executor
+# read the `[ACTION]` prefix as user-typed pre-approval and ran
+# `signal-cli send`. MEMORY.md autonomy boundary explicitly says "Signal:
+# never send from personal accounts." The queue layer is now the chokepoint:
+# only user-driven sources (manual / chat / deck-continue) or
+# `proposal_status="approved"` lineage may mint an execution-tag prefix.
+class TestExecutionTagGuard:
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_heartbeat_action_title_converted_to_proposal(
+        self, mock_list, mock_gog
+    ):
+        """The exact incident: heartbeat -> [ACTION] -> Signal send."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "g-1"}})
+        create_task(
+            "[ACTION] Specify ships article credit for Timur",
+            priority="high",
+            source="heartbeat",
+            body="Send signal-cli message to +420775189142 ...",
+        )
+        call_args = mock_gog.call_args[0]
+        title_arg = next(a for a in call_args if a == "--title" or a.startswith("[")) if False else None
+        # gog args: ["tasks", "add", lid, "--title", title, ...]
+        idx = call_args.index("--title")
+        new_title = call_args[idx + 1]
+        notes_arg = next(a for a in call_args if a.startswith("--notes="))
+        assert new_title.startswith("[PROPOSAL] "), f"title not rewritten: {new_title!r}"
+        assert "Specify ships article credit" in new_title
+        assert "type: proposal" in notes_arg
+        assert "proposal_status: pending" in notes_arg
+
+    @pytest.mark.parametrize("tag", ["[ACTION]", "[SEND]", "[PUBLISH]", "[BOOK]", "[POST]"])
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_all_execution_tags_blocked_for_automated_sources(
+        self, mock_list, mock_gog, tag
+    ):
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "g-x"}})
+        create_task(
+            f"{tag} do the irreversible thing",
+            priority="high",
+            source="idle_research",
+        )
+        call_args = mock_gog.call_args[0]
+        idx = call_args.index("--title")
+        assert call_args[idx + 1].startswith("[PROPOSAL] ")
+
+    @pytest.mark.parametrize("source", ["manual", "chat", "deck-continue"])
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_user_driven_sources_keep_action_prefix(
+        self, mock_list, mock_gog, source
+    ):
+        """User typed [ACTION] in the CLI / chat / clicked Execute — passes through."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "u-1"}})
+        create_task(
+            "[ACTION] do the thing",
+            priority="medium",
+            source=source,
+        )
+        call_args = mock_gog.call_args[0]
+        idx = call_args.index("--title")
+        assert call_args[idx + 1] == "[ACTION] do the thing"
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_approved_proposal_status_keeps_action_prefix(
+        self, mock_list, mock_gog
+    ):
+        """approve_proposal mutates in place but if a caller does pass the
+        approved status through create_task, honor it."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "a-1"}})
+        create_task(
+            "[ACTION] do the thing",
+            priority="medium",
+            source="heartbeat",
+            proposal_status="approved",
+        )
+        call_args = mock_gog.call_args[0]
+        idx = call_args.index("--title")
+        assert call_args[idx + 1] == "[ACTION] do the thing"
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_neutral_prefix_unaffected(self, mock_list, mock_gog):
+        """[REPLY], [DEAL], [RESEARCH] etc must pass through unchanged."""
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "n-1"}})
+        create_task(
+            "[REPLY] Andrew - draft response",
+            priority="medium",
+            source="heartbeat",
+        )
+        call_args = mock_gog.call_args[0]
+        idx = call_args.index("--title")
+        assert call_args[idx + 1] == "[REPLY] Andrew - draft response"
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_no_prefix_unaffected(self, mock_list, mock_gog):
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "z-1"}})
+        create_task(
+            "Research Acme Corp founders",
+            priority="medium",
+            source="heartbeat",
+        )
+        call_args = mock_gog.call_args[0]
+        idx = call_args.index("--title")
+        assert call_args[idx + 1] == "Research Acme Corp founders"

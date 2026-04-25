@@ -312,6 +312,8 @@ Write a GOOD body: full context (who, what, why), what the executor should produ
 - Is the output itself a research artifact or a knowledge-base update? → **Dispatch.**
 - Touching external surfaces (email send, calendar invite with attendees, message) → **Propose.** Draft-only autonomy boundary applies.
 
+**Never mint execution-tag prefixes.** `[ACTION]`, `[SEND]`, `[PUBLISH]`, `[BOOK]`, `[POST]` are reserved tokens that mean "the user already approved this". Heartbeat is automation, not the user. Use neutral prefixes (`[REPLY]`, `[DEAL]`, `[RESEARCH]`, `[PROMISE]`, no prefix) when dispatching, or `[PROPOSAL]` via `create_proposal()` when the work is irreversible. The queue layer auto-converts forged execution tags to `[PROPOSAL]` regardless, but the right call is to not produce them in the first place. Regression: 2026-04-25 Timur Olevskiy Signal incident — heartbeat created `[ACTION] Specify ships article credit for Timur` with a literal Signal body; the executor read the prefix as approval and sent the message.
+
 Inline dispatch (no queue entry) is only for genuinely fire-and-forget side effects that don't need a Result card. If in doubt, go through the queue — a `[RESULT]` card is always better than a lost dispatch.
 
 Heartbeat continues processing other groups while queued work runs on the next consumer tick.
