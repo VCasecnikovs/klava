@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-26T20:59:06.283681+00:00",
+  "last_run": "2026-04-26T21:25:21.014944+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -332,7 +332,11 @@
     "pufitus_ai_models_noise_apr26": "2026-04-26T20:27:53.524227+00:00",
     "vladislav_slaythespire_noise_apr26": "2026-04-26T20:27:53.524228+00:00",
     "synoptic_signal_apr26": "2026-04-26T20:59:06.283848+00:00",
-    "natuska_evening_apr26": "2026-04-26T20:59:06.283851+00:00"
+    "natuska_evening_apr26": "2026-04-26T20:59:06.283851+00:00",
+    "lev_sf_confirm_apr27": "2026-04-26T21:25:21.014944+00:00",
+    "diana_biotech_hire_signal_apr27": "2026-04-26T21:25:21.014944+00:00",
+    "morning_brief_apr27": "2026-04-26T21:25:21.014944+00:00",
+    "mtl_wallet_spam_apr27": "2026-04-26T21:25:21.014944+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
