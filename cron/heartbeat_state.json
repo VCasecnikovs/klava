@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-27T16:41:06.574866+00:00",
+  "last_run": "2026-04-27T17:16:09.242534+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -351,7 +351,16 @@
     "dima_abramov_signal_2026-04-27": "2026-04-27T16:41:06.575069+00:00",
     "jack_mcgrath_datarade_email_2026-04-27": "2026-04-27T16:41:06.575070+00:00",
     "ocean_idea_pufitus_2026-04-27": "2026-04-27T16:41:06.575072+00:00",
-    "lev_butterfly_mj_signal_2026-04-27": "2026-04-27T16:41:06.575073+00:00"
+    "lev_butterfly_mj_signal_2026-04-27": "2026-04-27T16:41:06.575073+00:00",
+    "shawn_signal_language_diversity_apr27": "2026-04-27T17:16:09.242534+00:00",
+    "eldil_deal_updated_apr27": "2026-04-27T17:16:09.242534+00:00",
+    "task_consumer_stuck_fixed_apr27": "2026-04-27T17:16:09.242534+00:00",
+    "spring_biotech_apr29_sf_task": "2026-04-27T17:16:09.242534+00:00",
+    "klava_telegram_hb_noise_apr27_20": "2026-04-27T17:16:09.242534+00:00",
+    "daria_leonova_dedup_apr27_20": "2026-04-27T17:16:09.242534+00:00",
+    "github_pr835_astrum_wallet_apr27": "2026-04-27T17:16:09.242534+00:00",
+    "ocean_mapping_idea_obsidian_apr27": "2026-04-27T17:16:09.242534+00:00",
+    "synbio_beta_browse_apr27": "2026-04-27T17:16:09.242534+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
@@ -478,6 +487,14 @@
       "start": "2026-04-29T18:30",
       "attendees": [],
       "location": "Fox Theatre, 2215 Broadway, Redwood City, CA 94063"
+    },
+    "spring_biotech_apr29_sf": {
+      "title": "Spring Biotech, Healthcare x AI Pitch Night",
+      "start": "2026-04-29T03:00:00",
+      "attendees": [
+        "vadims@vox-lab.com"
+      ],
+      "url": "https://luma.com/event/evt-3ii1X0OB0MXSLzf"
     }
   }
 }
