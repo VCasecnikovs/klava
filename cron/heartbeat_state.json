@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-27T00:52:59.668709+00:00",
+  "last_run": "2026-04-27T02:54:00.535587+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -453,6 +453,18 @@
         "casecnikov@gmail.com",
         "sergey@scade.pro"
       ]
+    },
+    "startup_grind_2026_day1": {
+      "title": "Startup Grind Conference 2026 (Day 1)",
+      "start": "2026-04-28T18:30",
+      "attendees": [],
+      "location": "Fox Theatre, 2215 Broadway, Redwood City, CA 94063"
+    },
+    "startup_grind_2026_day2": {
+      "title": "Startup Grind Conference 2026 (Day 2)",
+      "start": "2026-04-29T18:30",
+      "attendees": [],
+      "location": "Fox Theatre, 2215 Broadway, Redwood City, CA 94063"
     }
   }
 }
