@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-27T03:30:32.996696+00:00",
+  "last_run": "2026-04-27T16:00:53.408945+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -338,7 +338,11 @@
     "morning_brief_apr27": "2026-04-26T21:25:21.014944+00:00",
     "mtl_wallet_spam_apr27": "2026-04-26T21:25:21.014944+00:00",
     "gmail_startup_grind_2026": "2026-04-27T00:52:59.668845+00:00",
-    "tg_klava_hb_noise_0427_0023": "2026-04-27T00:52:59.668848+00:00"
+    "tg_klava_hb_noise_0427_0023": "2026-04-27T00:52:59.668848+00:00",
+    "dataminr_email_sent_apr27": "2026-04-27T16:00:53.409165+00:00",
+    "kireev_outreach_sent_apr27": "2026-04-27T16:00:53.409168+00:00",
+    "kireev_proposal_autoclosed_apr27": "2026-04-27T16:00:53.409170+00:00",
+    "reuters_hungary_tg_browse_apr27": "2026-04-27T16:00:53.409172+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
