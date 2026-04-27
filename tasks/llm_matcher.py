@@ -37,7 +37,7 @@ PROMPT_TEMPLATE = """You are a task-deduplication classifier. I'll show you ONE 
 Same topic = same person, deal, event, system component, or issue — even if they describe different stages (draft / review / approve / send) or different actions on the same target.
 
 Different topic = different person, different deal, different system component. A single shared word like "review" or a shared organization name on unrelated work is NOT enough. Two cards about Astrum can be different topics if they're about different PRs or features.
-
+{aliases_block}
 Output format: comma-separated numbers only, e.g. "2,5,7". If nothing matches, output the single word NONE. Output nothing else — no prose, no explanation.
 
 NEW TASK:
@@ -48,8 +48,17 @@ EXISTING TASKS:
 
 Same-topic numbers:"""
 
+ALIASES_HEADER = (
+    "\nKNOWN ENTITY ALIASES (cards using any of these names refer to the "
+    "SAME person/org):\n"
+)
 
-def _cache_key(new_title: str, candidates: Sequence[Tuple[str, str]]) -> str:
+
+def _cache_key(
+    new_title: str,
+    candidates: Sequence[Tuple[str, str]],
+    aliases_block: str = "",
+) -> str:
     h = hashlib.sha256()
     h.update(new_title.encode("utf-8"))
     for cid, ctitle in sorted(candidates):
@@ -57,6 +66,9 @@ def _cache_key(new_title: str, candidates: Sequence[Tuple[str, str]]) -> str:
         h.update(b"|")
         h.update((ctitle or "").encode("utf-8"))
         h.update(b"\n")
+    if aliases_block:
+        h.update(b"\nALIASES:")
+        h.update(aliases_block.encode("utf-8"))
     return h.hexdigest()[:32]
 
 
@@ -112,7 +124,17 @@ def topic_matches_llm(
               file=sys.stderr)
         return []
 
-    key = _cache_key(new_title, candidates)
+    aliases_block = ""
+    try:
+        from tasks.alias_index import relevant_aliases
+        all_titles = [new_title] + [t for _, t in candidates]
+        hints = relevant_aliases(all_titles)
+        if hints:
+            aliases_block = ALIASES_HEADER + "\n".join(f"- {h}" for h in hints) + "\n"
+    except Exception as e:
+        print(f"[llm_matcher] alias_index unavailable: {e}", file=sys.stderr)
+
+    key = _cache_key(new_title, candidates, aliases_block)
     cached = _load_cache(key)
     if cached is not None:
         return cached
@@ -120,7 +142,11 @@ def topic_matches_llm(
     numbered = "\n".join(
         f"{i + 1}. {title}" for i, (_, title) in enumerate(candidates)
     )
-    prompt = PROMPT_TEMPLATE.format(new_title=new_title, numbered_list=numbered)
+    prompt = PROMPT_TEMPLATE.format(
+        new_title=new_title,
+        numbered_list=numbered,
+        aliases_block=aliases_block,
+    )
 
     env = dict(os.environ)
     env.pop("CLAUDECODE", None)  # avoid nesting in active Claude Code session
