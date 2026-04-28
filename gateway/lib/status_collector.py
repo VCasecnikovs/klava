@@ -272,7 +272,10 @@ def _time_ago(iso_str: Optional[str]) -> str:
     try:
         dt = datetime.fromisoformat(iso_str)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            # Naive timestamps (older vadimgest writers) are local; newer
+            # writers emit tz-aware UTC. Treat naive as local so the rendered
+            # "ago" string matches reality on non-UTC hosts.
+            dt = dt.astimezone()
         diff = datetime.now(timezone.utc) - dt
         seconds = diff.total_seconds()
         if seconds < 0:
