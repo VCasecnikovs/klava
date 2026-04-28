@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-28T17:29:42.083514+00:00",
+  "last_run": "2026-04-28T18:27:37.764949+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -402,7 +402,12 @@
     "indian_bookseller_task_apr28": "2026-04-28T17:29:42.083721+00:00",
     "yossi_cohen_result_noted_apr28": "2026-04-28T17:29:42.083722+00:00",
     "dima_books_intel_apr28": "2026-04-28T17:29:42.083724+00:00",
-    "per_source_staleness_task_exists": "2026-04-28T17:29:42.083725+00:00"
+    "per_source_staleness_task_exists": "2026-04-28T17:29:42.083725+00:00",
+    "rob_aevitas_visit_apr28": "2026-04-28T18:27:37.764949+00:00",
+    "daria_leonova_reschedule_apr28": "2026-04-28T18:27:37.764949+00:00",
+    "eldil_dima_indian_bookseller_apr28": "2026-04-28T18:27:37.764949+00:00",
+    "perfecto_jwt_billing_merged_apr28": "2026-04-28T18:27:37.764949+00:00",
+    "spring_biotech_diana_apr28": "2026-04-28T18:27:37.764949+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
@@ -556,6 +561,14 @@
       "attendees": [
         "Ilmars Stolcers"
       ]
+    },
+    "aevitas_house_apr28": {
+      "title": "Aevitas House",
+      "start": "2026-04-28T14:00:00",
+      "attendees": [
+        "casecnikov@gmail.com"
+      ],
+      "location": "1524 Fell St, San Francisco, CA 94117"
     }
   }
 }
