@@ -59,14 +59,19 @@ def sync() -> dict:
     for name, info in stale_names.items():
         if name in existing_by_name:
             continue
-        ago = info.get("last_data_ago") or "never"
+        # `last_sync_ago` is the real staleness signal. `last_data_ago` reflects
+        # the most recent record timestamp, which can be in the future for
+        # sources like calendar (events 14d ahead) and misleads as "just now".
+        sync_ago = info.get("last_sync_ago") or "never"
+        data_ago = info.get("last_data_ago") or "never"
         records = info.get("records", 0)
         missing_deps = info.get("missing_deps") or []
 
-        title = f"{TASK_PREFIX} {name} ({ago})"
+        title = f"{TASK_PREFIX} {name} ({sync_ago})"
         body_lines = [
             f"Source: {name}",
-            f"Last data: {ago}",
+            f"Last sync: {sync_ago}",
+            f"Last data: {data_ago}",
             f"Records total: {records:,}",
         ]
         if missing_deps:

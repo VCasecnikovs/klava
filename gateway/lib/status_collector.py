@@ -478,8 +478,11 @@ def _collect_fresh_dashboard_data() -> Dict:
                 if check_ts:
                     try:
                         dt = datetime.fromisoformat(check_ts)
+                        # Older vadimgest builds wrote naive local timestamps;
+                        # newer builds write tz-aware UTC. Treat naive as local
+                        # so we don't read PDT-offset entries as 7h stale.
                         if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
+                            dt = dt.astimezone()
                         age_hours = (now - dt).total_seconds() / 3600
                         healthy = age_hours < 2
                     except Exception:
