@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-28T16:59:36.281218+00:00",
+  "last_run": "2026-04-28T17:29:42.083514+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -393,7 +393,16 @@
     "shawn_call_apr28": "2026-04-28T16:59:36.281218+00:00",
     "diana_signum_logistics_apr28": "2026-04-28T16:59:36.281218+00:00",
     "daria_leonova_waiting_apr28": "2026-04-28T16:59:36.281218+00:00",
-    "orlov_shipOS_palantir_apr28": "2026-04-28T16:59:36.281218+00:00"
+    "orlov_shipOS_palantir_apr28": "2026-04-28T16:59:36.281218+00:00",
+    "shawn_books_call_apr28_transcript": "2026-04-28T17:29:42.083712+00:00",
+    "eldil_deal_note_updated_apr28": "2026-04-28T17:29:42.083714+00:00",
+    "shawn_people_note_updated_apr28": "2026-04-28T17:29:42.083717+00:00",
+    "isbn_task_created_apr28": "2026-04-28T17:29:42.083719+00:00",
+    "shawn_nda_sf_task_apr28": "2026-04-28T17:29:42.083720+00:00",
+    "indian_bookseller_task_apr28": "2026-04-28T17:29:42.083721+00:00",
+    "yossi_cohen_result_noted_apr28": "2026-04-28T17:29:42.083722+00:00",
+    "dima_books_intel_apr28": "2026-04-28T17:29:42.083724+00:00",
+    "per_source_staleness_task_exists": "2026-04-28T17:29:42.083725+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
