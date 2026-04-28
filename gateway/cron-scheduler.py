@@ -119,6 +119,13 @@ class JobManager:
         self._last_wake_check = time.monotonic()  # For sleep/wake detection
         self._internet_available = True
         self._internet_lost_at = None
+        # Set when offline->online transition needs warmup+catch-up but warmup
+        # failed; reset after a successful drain. Drives retry-on-every-tick
+        # so a cold API right after restore doesn't strand the catch-up.
+        self._catch_up_pending = False
+        # Deferred queue persists across restarts so jobs skipped while offline
+        # survive a daemon restart that happens before connectivity returns.
+        self.state.setdefault("deferred_jobs", {})
 
     def _load_config(self) -> Dict:
         """Load gateway config."""
@@ -525,7 +532,14 @@ class JobManager:
         return False
 
     def _monitor_connectivity(self):
-        """Monitor internet connectivity and trigger catch-up on restore."""
+        """Monitor internet connectivity, drain deferred queue, trigger catch-up.
+
+        On offline->online transition we mark catch-up pending and try to drain
+        immediately. If the API is still cold ("ConnectionRefused for ~30-60s"
+        per _wait_for_api comment) we leave the deferred queue and the pending
+        flag intact, and every subsequent tick keeps retrying until the API
+        responds. That fixes the previous "catch-up deferred" silent give-up.
+        """
         online = self._check_internet()
 
         if self._internet_available and not online:
@@ -533,7 +547,9 @@ class JobManager:
             self._internet_available = False
             self._internet_lost_at = datetime.now(timezone.utc)
             self.logger.warning("Internet connectivity lost")
-        elif not self._internet_available and online:
+            return
+
+        if not self._internet_available and online:
             # Was offline, now online
             lost_duration = ""
             if self._internet_lost_at:
@@ -541,12 +557,115 @@ class JobManager:
                 lost_duration = f" after {elapsed:.0f}s"
             self._internet_available = True
             self._internet_lost_at = None
-            self.logger.info(f"Internet connectivity restored{lost_duration}, warming up API...")
-            self.load_jobs()
-            if not self._wait_for_api(max_wait=90, interval=10):
-                self.logger.warning("API not available after connectivity restore, catch-up deferred")
-                return
-            self.detect_missed_jobs()
+            self._catch_up_pending = True
+            self.logger.info(f"Internet connectivity restored{lost_duration}")
+
+        if not online:
+            return
+
+        deferred = self.state.get("deferred_jobs") or {}
+        if not self._catch_up_pending and not deferred:
+            return
+
+        # Online + work to do (transition just happened, or a previous tick
+        # left the queue / pending flag set because warmup hadn't recovered).
+        self.logger.info(
+            f"Catch-up tick: pending={self._catch_up_pending}, "
+            f"deferred={len(deferred)}; warming up API..."
+        )
+        if not self._wait_for_api(max_wait=30, interval=10):
+            self.logger.info(
+                "API not yet available, catch-up retry on next connectivity tick"
+            )
+            return
+
+        self.load_jobs()
+        self._drain_deferred_jobs()
+        self.detect_missed_jobs()
+        self._catch_up_pending = False
+
+    def _defer_job(self, job_id: str, scheduled_time: Optional[datetime] = None):
+        """Push a job onto the deferred queue. Dedupe so one entry per job.
+
+        Called from skip paths when a `requires_internet` job fires while the
+        connectivity monitor has flagged the system offline. Persisted in state
+        so a daemon restart during the offline window doesn't lose the entry.
+        """
+        if scheduled_time is None:
+            scheduled_time = datetime.now(timezone.utc)
+        deferred = self.state.setdefault("deferred_jobs", {})
+        entry = deferred.get(job_id) or {
+            "first_skip": scheduled_time.isoformat(),
+            "skips": 0,
+        }
+        entry["skips"] = int(entry.get("skips", 0)) + 1
+        entry["last_skip"] = scheduled_time.isoformat()
+        deferred[job_id] = entry
+        self._save_state()
+
+    def _drain_deferred_jobs(self):
+        """Drain the deferred queue.
+
+        Each pending job is dispatched once via the normal `_execute_job` path
+        (so circuit breaker + locking still apply) using a one-shot APScheduler
+        DateTrigger. Async dispatch keeps the connectivity-monitor tick from
+        blocking on long-running jobs (heartbeat / mentor / Claude sessions).
+
+        Catch-up enabled jobs are NOT pushed onto the deferred queue (see skip
+        paths), so this drain doesn't fight `detect_missed_jobs`.
+        """
+        deferred = self.state.get("deferred_jobs") or {}
+        if not deferred:
+            return
+
+        pending_ids = list(deferred.keys())
+        self.logger.info(f"Draining {len(pending_ids)} deferred job(s): {pending_ids}")
+
+        jobs_by_id = {j["id"]: j for j in self.jobs}
+        now = datetime.now(timezone.utc)
+
+        for job_id in pending_ids:
+            job = jobs_by_id.get(job_id)
+            entry = self.state["deferred_jobs"].pop(job_id, None)
+
+            if not job:
+                self.logger.warning(
+                    f"Deferred job {job_id} not in jobs.json (skips={entry.get('skips') if entry else '?'}), dropping"
+                )
+                continue
+            if not job.get("enabled", True):
+                self.logger.info(f"Deferred job {job_id} disabled, dropping")
+                continue
+            if not self._internet_available:
+                # Connectivity dropped while we were draining; put it back.
+                self.state["deferred_jobs"][job_id] = entry
+                self.logger.info(
+                    f"Connectivity lost mid-drain, re-deferring {job_id}"
+                )
+                continue
+
+            run_id = f"{job_id}_drain_{int(time.time() * 1000)}"
+            try:
+                self.scheduler.add_job(
+                    func=self._execute_job,
+                    trigger=DateTrigger(run_date=now),
+                    args=[job],
+                    id=run_id,
+                    name=f"{job.get('name', job_id)} (deferred drain)",
+                    replace_existing=True,
+                    misfire_grace_time=300,
+                )
+                self.logger.info(
+                    f"Deferred {job_id}: dispatched (skips={entry.get('skips') if entry else 1})"
+                )
+            except Exception as e:
+                # Put it back so the next tick retries.
+                self.state["deferred_jobs"][job_id] = entry
+                self.logger.error(
+                    f"Failed to dispatch deferred {job_id}: {e}; will retry"
+                )
+
+        self._save_state()
 
     def load_jobs(self):
         """Load job definitions from jobs.json."""
@@ -870,10 +989,24 @@ class JobManager:
             ClaudeExecutor.reap_stale_children(os.getpid(), max_age_seconds=5400, log=self.logger.info)
         except Exception:
             pass
-        # Skip internet-dependent jobs when offline
+        # Skip internet-dependent jobs when offline. Catch-up jobs are
+        # already covered by `detect_missed_jobs` (last_run-based), so we only
+        # push non-catch-up jobs onto the deferred queue to avoid double-runs
+        # when the connectivity monitor drains.
         if job.get("requires_internet", True) and not self._internet_available:
             job_id = job.get("id", "unknown")
-            self.logger.info(f"Skipping {job_id}: no internet (offline since {self._internet_lost_at})")
+            catch_up_enabled = bool(job.get("catch_up", {}).get("enabled", False))
+            if catch_up_enabled:
+                self.logger.info(
+                    f"Skipping {job_id}: no internet (offline since {self._internet_lost_at}); "
+                    f"catch-up will rerun on connectivity restore"
+                )
+            else:
+                self._defer_job(job_id)
+                self.logger.info(
+                    f"Skipping {job_id}: no internet (offline since {self._internet_lost_at}); "
+                    f"deferred (skips={self.state['deferred_jobs'][job_id]['skips']})"
+                )
             return
         # Circuit breaker: if the last N runs of this job all failed, don't
         # launch another session - cost stays bounded until someone looks.

@@ -1275,12 +1275,15 @@ class TestMonitorConnectivity:
         job_manager._internet_lost_at = datetime.now(timezone.utc) - timedelta(seconds=30)
 
         with patch.object(job_manager, "_check_internet", return_value=True), \
+             patch.object(job_manager, "_wait_for_api", return_value=True), \
              patch.object(job_manager, "load_jobs"), \
+             patch.object(job_manager, "_drain_deferred_jobs"), \
              patch.object(job_manager, "detect_missed_jobs") as mock_catch:
             job_manager._monitor_connectivity()
 
         assert job_manager._internet_available is True
         assert job_manager._internet_lost_at is None
+        assert job_manager._catch_up_pending is False
         mock_catch.assert_called_once()
 
     def test_stays_online(self, job_manager):
@@ -1327,6 +1330,215 @@ class TestExecuteJobOffline:
         with patch.object(job_manager, "_execute_job_internal") as mock_exec:
             job_manager._execute_job(job)
             mock_exec.assert_called_once()
+
+    def test_skip_defers_non_catch_up_job(self, job_manager):
+        job_manager._internet_available = False
+        job_manager._internet_lost_at = datetime.now(timezone.utc)
+        job_manager.state["deferred_jobs"] = {}
+
+        job = {
+            "id": "task-consumer",
+            "requires_internet": True,
+            # No catch_up = not eligible for catch-up rerun, must defer.
+        }
+
+        with patch.object(job_manager, "_execute_job_internal") as mock_exec:
+            job_manager._execute_job(job)
+            mock_exec.assert_not_called()
+
+        assert "task-consumer" in job_manager.state["deferred_jobs"]
+        entry = job_manager.state["deferred_jobs"]["task-consumer"]
+        assert entry["skips"] == 1
+        assert "first_skip" in entry
+
+    def test_skip_does_not_defer_catch_up_job(self, job_manager):
+        # Regression: linkedin-sync (catch_up=True) was lost on Apr 28, 2026
+        # because catch-up retry gave up after one failed warmup. Catch-up jobs
+        # rely on detect_missed_jobs (last_run-based), so they MUST NOT also
+        # land on the deferred queue or they'd run twice.
+        job_manager._internet_available = False
+        job_manager._internet_lost_at = datetime.now(timezone.utc)
+        job_manager.state["deferred_jobs"] = {}
+
+        job = {
+            "id": "linkedin-sync",
+            "requires_internet": True,
+            "catch_up": {"enabled": True, "max_catch_up": 1},
+        }
+
+        job_manager._execute_job(job)
+        assert "linkedin-sync" not in job_manager.state["deferred_jobs"]
+
+    def test_repeated_skip_dedupes_to_one_entry(self, job_manager):
+        job_manager._internet_available = False
+        job_manager._internet_lost_at = datetime.now(timezone.utc)
+        job_manager.state["deferred_jobs"] = {}
+
+        job = {"id": "task-consumer", "requires_internet": True}
+
+        for _ in range(5):
+            job_manager._execute_job(job)
+
+        assert list(job_manager.state["deferred_jobs"].keys()) == ["task-consumer"]
+        assert job_manager.state["deferred_jobs"]["task-consumer"]["skips"] == 5
+
+
+# ── deferred queue drain ─────────────────────────────────────────────
+
+class TestDeferredQueue:
+    def test_drain_dispatches_each_pending_job(self, job_manager):
+        job_manager._internet_available = True
+        job_manager.state["deferred_jobs"] = {
+            "task-consumer": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 3},
+            "backup-cleanup": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 1},
+        }
+        job_manager.jobs = [
+            {"id": "task-consumer", "name": "TC", "enabled": True, "requires_internet": True},
+            {"id": "backup-cleanup", "name": "BC", "enabled": True, "requires_internet": True},
+        ]
+
+        job_manager._drain_deferred_jobs()
+
+        # Two add_job calls (one per deferred job)
+        assert job_manager.scheduler.add_job.call_count == 2
+        # Queue cleared
+        assert job_manager.state["deferred_jobs"] == {}
+
+    def test_drain_drops_unknown_job(self, job_manager):
+        job_manager._internet_available = True
+        job_manager.state["deferred_jobs"] = {
+            "ghost": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 1},
+        }
+        job_manager.jobs = []  # ghost no longer defined
+
+        job_manager._drain_deferred_jobs()
+
+        assert job_manager.state["deferred_jobs"] == {}
+        job_manager.scheduler.add_job.assert_not_called()
+
+    def test_drain_drops_disabled_job(self, job_manager):
+        job_manager._internet_available = True
+        job_manager.state["deferred_jobs"] = {
+            "task-consumer": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 1},
+        }
+        job_manager.jobs = [
+            {"id": "task-consumer", "name": "TC", "enabled": False, "requires_internet": True},
+        ]
+
+        job_manager._drain_deferred_jobs()
+
+        assert job_manager.state["deferred_jobs"] == {}
+        job_manager.scheduler.add_job.assert_not_called()
+
+    def test_drain_re_defers_when_offline_mid_drain(self, job_manager):
+        # Connectivity dropped while we were iterating - the entry must go back
+        # so the next online tick can pick it up again.
+        job_manager._internet_available = False
+        job_manager.state["deferred_jobs"] = {
+            "task-consumer": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 2},
+        }
+        job_manager.jobs = [
+            {"id": "task-consumer", "name": "TC", "enabled": True, "requires_internet": True},
+        ]
+
+        job_manager._drain_deferred_jobs()
+
+        assert "task-consumer" in job_manager.state["deferred_jobs"]
+        job_manager.scheduler.add_job.assert_not_called()
+
+    def test_drain_persists_state(self, job_manager):
+        job_manager._internet_available = True
+        job_manager.state["deferred_jobs"] = {
+            "task-consumer": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 1},
+        }
+        job_manager.jobs = [
+            {"id": "task-consumer", "enabled": True, "requires_internet": True},
+        ]
+
+        job_manager._drain_deferred_jobs()
+
+        with open(job_manager.state_file) as f:
+            saved = json.load(f)
+        assert saved["deferred_jobs"] == {}
+
+
+# ── _monitor_connectivity catch-up retry ─────────────────────────────
+
+class TestMonitorConnectivityRetry:
+    def test_warmup_failure_keeps_pending_for_next_tick(self, job_manager):
+        # Regression: Apr 28, 2026 — linkedin-sync was lost because
+        # _wait_for_api returned False after restore and the scheduler logged
+        # "catch-up deferred" but did nothing. The pending flag must stay set
+        # so the next tick retries.
+        job_manager._internet_available = False
+        job_manager._internet_lost_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        job_manager._catch_up_pending = False
+
+        with patch.object(job_manager, "_check_internet", return_value=True), \
+             patch.object(job_manager, "_wait_for_api", return_value=False), \
+             patch.object(job_manager, "load_jobs"), \
+             patch.object(job_manager, "_drain_deferred_jobs") as mock_drain, \
+             patch.object(job_manager, "detect_missed_jobs") as mock_catch:
+            job_manager._monitor_connectivity()
+
+        assert job_manager._internet_available is True
+        assert job_manager._catch_up_pending is True
+        mock_drain.assert_not_called()
+        mock_catch.assert_not_called()
+
+    def test_next_tick_after_warmup_failure_retries(self, job_manager):
+        # Already online from previous tick, pending flag still set, queue may
+        # also be non-empty. Subsequent tick must retry warmup + drain + catch.
+        job_manager._internet_available = True
+        job_manager._catch_up_pending = True
+        job_manager.state["deferred_jobs"] = {
+            "task-consumer": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 1},
+        }
+
+        with patch.object(job_manager, "_check_internet", return_value=True), \
+             patch.object(job_manager, "_wait_for_api", return_value=True), \
+             patch.object(job_manager, "load_jobs"), \
+             patch.object(job_manager, "_drain_deferred_jobs") as mock_drain, \
+             patch.object(job_manager, "detect_missed_jobs") as mock_catch:
+            job_manager._monitor_connectivity()
+
+        mock_drain.assert_called_once()
+        mock_catch.assert_called_once()
+        assert job_manager._catch_up_pending is False
+
+    def test_drains_queue_even_when_pending_flag_off(self, job_manager):
+        # Daemon restart while offline: pending flag is False but queue persists
+        # from previous run. The next online tick still drains.
+        job_manager._internet_available = True
+        job_manager._catch_up_pending = False
+        job_manager.state["deferred_jobs"] = {
+            "task-consumer": {"first_skip": "2026-04-28T13:00:00+00:00", "skips": 1},
+        }
+
+        with patch.object(job_manager, "_check_internet", return_value=True), \
+             patch.object(job_manager, "_wait_for_api", return_value=True), \
+             patch.object(job_manager, "load_jobs"), \
+             patch.object(job_manager, "_drain_deferred_jobs") as mock_drain, \
+             patch.object(job_manager, "detect_missed_jobs") as mock_catch:
+            job_manager._monitor_connectivity()
+
+        mock_drain.assert_called_once()
+        mock_catch.assert_called_once()
+
+    def test_idle_online_no_pending_no_queue_does_nothing(self, job_manager):
+        job_manager._internet_available = True
+        job_manager._catch_up_pending = False
+        job_manager.state["deferred_jobs"] = {}
+
+        with patch.object(job_manager, "_check_internet", return_value=True), \
+             patch.object(job_manager, "_wait_for_api") as mock_wait, \
+             patch.object(job_manager, "_drain_deferred_jobs") as mock_drain, \
+             patch.object(job_manager, "detect_missed_jobs") as mock_catch:
+            job_manager._monitor_connectivity()
+
+        mock_wait.assert_not_called()
+        mock_drain.assert_not_called()
+        mock_catch.assert_not_called()
 
 
 # ── detect_missed_jobs sorting ───────────────────────────────────────
