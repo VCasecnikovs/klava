@@ -2027,15 +2027,18 @@ class TestExecuteJobInternalBash:
         job_manager.state = {"jobs_status": {}, "running_foreground_jobs": {}}
 
         mock_proc = MagicMock()
-        mock_proc.stdout = "hello\n"
-        mock_proc.stderr = ""
+        mock_proc.pid = 12345
         mock_proc.returncode = 0
+        mock_proc.communicate.return_value = ("hello\n", "")
 
-        with patch("subprocess.run", return_value=mock_proc), \
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
              patch.object(job_manager, "_log_run"), \
              patch.object(job_manager, "_save_state"), \
              patch.object(job_manager, "_process_job_result") as mock_process:
             job_manager._execute_job_internal(job, is_catch_up=False)
+            # Regression: bash mode must spawn a new session so the whole
+            # process group can be killed on timeout (2026-04-27).
+            assert mock_popen.call_args.kwargs.get("start_new_session") is True
             mock_process.assert_called_once()
             result_arg = mock_process.call_args[0][2]
             assert result_arg["error"] is None
@@ -2049,11 +2052,11 @@ class TestExecuteJobInternalBash:
         job_manager.state = {"jobs_status": {}, "running_foreground_jobs": {}}
 
         mock_proc = MagicMock()
-        mock_proc.stdout = ""
-        mock_proc.stderr = "command failed"
+        mock_proc.pid = 12345
         mock_proc.returncode = 1
+        mock_proc.communicate.return_value = ("", "command failed")
 
-        with patch("subprocess.run", return_value=mock_proc), \
+        with patch("subprocess.Popen", return_value=mock_proc), \
              patch.object(job_manager, "_log_run"), \
              patch.object(job_manager, "_save_state"), \
              patch.object(job_manager, "_process_job_result") as mock_process:
@@ -2063,6 +2066,9 @@ class TestExecuteJobInternalBash:
             assert result_arg["exit_code"] == 1
 
     def test_bash_mode_timeout(self, job_manager):
+        """Regression: 2026-04-27 task-consumer ran 6725s past 3600s timeout.
+        bash subprocess.run only killed bash, orphaning python3 grandchildren.
+        Fix uses Popen + start_new_session, kills whole process group on timeout."""
         job = {
             "id": "slow",
             "execution": {"mode": "bash", "command": "sleep 999", "timeout_seconds": 1},
@@ -2070,13 +2076,26 @@ class TestExecuteJobInternalBash:
         job_manager.state = {"jobs_status": {}, "running_foreground_jobs": {}}
 
         import subprocess as sp
-        with patch("subprocess.run", side_effect=sp.TimeoutExpired("sleep", 1)), \
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        # First communicate() raises TimeoutExpired, second (after kill) returns
+        mock_proc.communicate.side_effect = [
+            sp.TimeoutExpired("sleep", 1),
+            ("", ""),
+        ]
+
+        with patch("subprocess.Popen", return_value=mock_proc), \
+             patch("os.getpgid", return_value=12345) as mock_getpgid, \
+             patch("os.killpg") as mock_killpg, \
              patch.object(job_manager, "_log_run"), \
              patch.object(job_manager, "_save_state"), \
              patch.object(job_manager, "_process_job_result") as mock_process:
             job_manager._execute_job_internal(job, is_catch_up=False)
+            mock_getpgid.assert_called_once_with(12345)
+            mock_killpg.assert_called_once()
             result_arg = mock_process.call_args[0][2]
             assert "Timeout" in result_arg["error"]
+            assert "killed process group" in result_arg["error"]
 
     def test_bash_mode_no_command(self, job_manager):
         job = {
@@ -2099,7 +2118,7 @@ class TestExecuteJobInternalBash:
         }
         job_manager.state = {"jobs_status": {}, "running_foreground_jobs": {}}
 
-        with patch("subprocess.run", side_effect=OSError("no such file")), \
+        with patch("subprocess.Popen", side_effect=OSError("no such file")), \
              patch.object(job_manager, "_log_run"), \
              patch.object(job_manager, "_save_state"), \
              patch.object(job_manager, "_process_job_result") as mock_process:

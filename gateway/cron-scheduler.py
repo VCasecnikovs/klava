@@ -18,6 +18,7 @@ import fcntl
 import logging
 import html
 import re
+import signal
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -1102,24 +1103,43 @@ class JobManager:
             if not command:
                 result = {"error": "No command specified for bash mode"}
             else:
+                # start_new_session=True puts bash + descendants into their own
+                # process group, so on timeout we can SIGKILL the whole tree.
+                # Without this, subprocess.run only kills bash and orphans the
+                # python3/etc grandchildren under launchd. Regression: 2026-04-27,
+                # task-consumer ran 6725s past its 3600s timeout.
+                proc = None
                 try:
-                    import subprocess
-                    proc = subprocess.run(
+                    proc = subprocess.Popen(
                         ["bash", "-c", command],
-                        capture_output=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                         text=True,
-                        timeout=timeout,
                         env=os.environ.copy(),
                         cwd=os.path.expanduser("~"),
+                        start_new_session=True,
                     )
+                    stdout, stderr = proc.communicate(timeout=timeout)
                     result = {
-                        "result": proc.stdout + proc.stderr,
-                        "error": None if proc.returncode == 0 else f"Exit code {proc.returncode}: {proc.stderr}",
+                        "result": stdout + stderr,
+                        "error": None if proc.returncode == 0 else f"Exit code {proc.returncode}: {stderr}",
                         "exit_code": proc.returncode,
                         "cost": 0.0
                     }
                 except subprocess.TimeoutExpired:
-                    result = {"error": f"Timeout after {timeout}s", "cost": 0.0}
+                    if proc is not None:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except (ProcessLookupError, OSError):
+                            try:
+                                proc.kill()
+                            except (ProcessLookupError, OSError):
+                                pass
+                        try:
+                            proc.communicate(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            pass
+                    result = {"error": f"Timeout after {timeout}s (killed process group)", "cost": 0.0}
                 except Exception as e:
                     result = {"error": str(e), "cost": 0.0}
             self.logger.info(f"Job {job_id}: bash completed, exit={result.get('exit_code')}, error={result.get('error')}")
