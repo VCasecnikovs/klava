@@ -480,11 +480,14 @@ def _check_and_execute_locked() -> dict:
     log.info(f"Executing: {task.title} (priority: {task.priority})")
 
     # Mark as running
+    # If mark_running fails (e.g. Google 400 on a completed/deleted task), treat as
+    # idle rather than error — one bad task shouldn't exit(1) and trip the circuit
+    # breaker. The stale-task watchdog will clean it up on the next cycle.
     try:
         mark_running(task)
     except Exception as e:
-        log.error(f"Failed to mark running: {e}")
-        return {"action": "error", "error": str(e)}
+        log.error(f"Failed to mark running: {e} — skipping task {task.id!r}")
+        return {"action": "idle", "reason": "mark_running_failed", "error": str(e)}
 
     # Execute
     try:
