@@ -265,30 +265,52 @@ def collect_dashboard_data() -> Dict:
     return data
 
 
+def _parse_any_ts(s: str) -> Optional[datetime]:
+    """Parse the timestamp shapes vadimgest sources actually emit.
+
+    ISO and ISO-with-space cover most syncers. xnews stores Twitter's
+    asctime-with-tz ("Wed Apr 29 13:28:24 +0000 2026") raw, so we handle that
+    too instead of falling through to the unparsed-string branch.
+    """
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(s.replace(" ", "T", 1))
+    except ValueError:
+        pass
+    if re.match(r'^[A-Za-z]{3} [A-Za-z]{3} ', s):
+        try:
+            return datetime.strptime(s, "%a %b %d %H:%M:%S %z %Y")
+        except ValueError:
+            pass
+    return None
+
+
 def _time_ago(iso_str: Optional[str]) -> str:
     """Convert ISO timestamp to human-readable time ago."""
     if not iso_str or iso_str == "None":
         return "never"
-    try:
-        dt = datetime.fromisoformat(iso_str)
-        if dt.tzinfo is None:
-            # Naive timestamps (older vadimgest writers) are local; newer
-            # writers emit tz-aware UTC. Treat naive as local so the rendered
-            # "ago" string matches reality on non-UTC hosts.
-            dt = dt.astimezone()
-        diff = datetime.now(timezone.utc) - dt
-        seconds = diff.total_seconds()
-        if seconds < 0:
-            return "just now"
-        if seconds < 60:
-            return f"{int(seconds)}s ago"
-        if seconds < 3600:
-            return f"{int(seconds/60)}m ago"
-        if seconds < 86400:
-            return f"{int(seconds/3600)}h ago"
-        return f"{int(seconds/86400)}d ago"
-    except Exception:
+    dt = _parse_any_ts(str(iso_str))
+    if dt is None:
         return str(iso_str)
+    if dt.tzinfo is None:
+        # Naive timestamps (older vadimgest writers) are local; newer
+        # writers emit tz-aware UTC. Treat naive as local so the rendered
+        # "ago" string matches reality on non-UTC hosts.
+        dt = dt.astimezone()
+    diff = datetime.now(timezone.utc) - dt
+    seconds = diff.total_seconds()
+    if seconds < 0:
+        return "just now"
+    if seconds < 60:
+        return f"{int(seconds)}s ago"
+    if seconds < 3600:
+        return f"{int(seconds/60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds/3600)}h ago"
+    return f"{int(seconds/86400)}d ago"
 
 
 def _collect_fresh_dashboard_data() -> Dict:
@@ -479,8 +501,8 @@ def _collect_fresh_dashboard_data() -> Dict:
             else:
                 check_ts = last_sync_ts or last_data_ts
                 if check_ts:
-                    try:
-                        dt = datetime.fromisoformat(check_ts)
+                    dt = _parse_any_ts(check_ts)
+                    if dt is not None:
                         # Older vadimgest builds wrote naive local timestamps;
                         # newer builds write tz-aware UTC. Treat naive as local
                         # so we don't read PDT-offset entries as 7h stale.
@@ -488,8 +510,6 @@ def _collect_fresh_dashboard_data() -> Dict:
                             dt = dt.astimezone()
                         age_hours = (now - dt).total_seconds() / 3600
                         healthy = age_hours < 2
-                    except Exception:
-                        pass
                 else:
                     healthy = False
 

@@ -480,6 +480,17 @@ class TestTimeAgo:
         result = _time_ago("2020-01-01T00:00:00+00:00")
         assert "d" in result or "h" in result
 
+    def test_twitter_asctime_format(self):
+        # Regression: xnews stores Twitter's "Wed Apr 29 13:28:24 +0000 2026"
+        # raw. Before the fix, datetime.fromisoformat raised ValueError and
+        # _time_ago fell through to returning the raw string, which leaked
+        # into the dashboard / Klava task body as a literal date instead of
+        # a relative "Xh ago" label. (2026-04-29)
+        result = _time_ago("Wed Apr 29 12:40:49 +0000 2026")
+        assert any(unit in result for unit in ("s ago", "m ago", "h ago", "d ago", "just now"))
+        # The raw string must not be returned verbatim.
+        assert "Wed Apr 29" not in result
+
 
 # ── _format_job_summaries ──
 
