@@ -241,6 +241,8 @@ When writing a skill or a cron job that produces content the user should see:
 
 **Digest cards.** Periodic outputs (Pulse, Reflection, Mentor, Klava self-reports) should pass `digest=True` to `create_result()`. Two effects: (1) the card carries a `digest: true` frontmatter flag the Deck can use to render it in a separate, less-prominent section than artifact-with-ack cards; (2) auto-supersede — any prior pending digest with the same `source` is completed before the new one is created, so only the latest digest of each kind stays on the Deck. Implies `dedup_topic=False`.
 
+**Evidence-driven auto-close.** `tasks/evidence_closer.py` walks pending [RESULT] cards once daily (cron `evidence-closer`, default `--dry-run`). For each card it (1) extracts a structured target via haiku LLM call (`{actionable, person, search_terms, channels}`, cached 7d on disk by card+title hash), then (2) queries the vadimgest FTS5 index for hits in messaging sources (signal/telegram/whatsapp/imessage/gmail/hlopya/calendar/github — never `claude`/`obsidian`/`heartbeat`, since Klava's own writes don't prove anything happened) dated after the card's `created`. Hits → close the card with an audit note appended to the body. No date-based auto-close — only evidence-driven. Output goes to a digest card on the Deck so the user reviews decisions before promoting cron to `--apply`.
+
 ### Heartbeat architecture
 
 - **Cron-scheduler is the sole TG sender.** The heartbeat script outputs to stdout only; the scheduler formats and posts.
