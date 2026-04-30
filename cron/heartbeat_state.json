@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-04-30T08:39:00.000000+00:00",
+  "last_run": "2026-04-30T06:41:46.699245+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -620,22 +620,32 @@
     "basically_baked_apr29": {
       "title": "Basically, Baked - Open Registration @ Frontier Tower",
       "start": "2026-04-29T18:00",
-      "attendees": ["vadims@vox-lab.com"]
+      "attendees": [
+        "vadims@vox-lab.com"
+      ]
     },
     "biotech_deregulation_apr30": {
       "title": "State of Biotech Deregulation @ Frontier Tower",
       "start": "2026-04-30T17:00",
-      "attendees": ["vadims@vox-lab.com"]
+      "attendees": [
+        "vadims@vox-lab.com"
+      ]
     },
     "vox_sync_may13": {
       "title": "Vox Sync",
       "start": "2026-05-13T09:00",
-      "attendees": ["vadims@vox-lab.com", "x3"]
+      "attendees": [
+        "vadims@vox-lab.com",
+        "x3"
+      ]
     },
     "lunch_alex_apr30": {
       "title": "Lunch Vadims, Alex",
       "start": "2026-04-30T14:00",
-      "attendees": ["casecnikov@gmail.com", "x4"]
+      "attendees": [
+        "casecnikov@gmail.com",
+        "x4"
+      ]
     }
   }
 }
