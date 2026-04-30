@@ -1888,6 +1888,65 @@ class TestDigestFlag:
 
     @patch("tasks.queue._run_gog")
     @patch("tasks.queue.list_tasks")
+    def test_supersede_folds_prior_bodies_into_new_digest(
+        self, mock_list, mock_gog
+    ):
+        """The newest digest must include prior digest bodies as a
+        `## Prior {source} digest — ...` history section so nothing is
+        dropped when older cards are superseded.
+        """
+        from tasks.queue import create_result
+
+        old1 = Task(
+            id="old1",
+            title="[RESULT] Pulse — Apr 25 14:00",
+            type="result",
+            source="pulse",
+            status="pending",
+            digest=True,
+            created="2026-04-25T14:00:00+00:00",
+            body="#result\n\n## Pulse 14:00 highlights\nThing A happened.",
+        )
+        old2 = Task(
+            id="old2",
+            title="[RESULT] Pulse — Apr 25 20:00",
+            type="result",
+            source="pulse",
+            status="pending",
+            digest=True,
+            created="2026-04-25T20:00:00+00:00",
+            body="#result\n\n## Pulse 20:00 highlights\nThing B happened.",
+        )
+        mock_list.return_value = [old1, old2]
+        mock_gog.return_value = json.dumps({"task": {"id": "new-pulse"}})
+
+        create_result(
+            parent_task_id=None,
+            title="Pulse — Apr 26 06:00",
+            body="## Pulse 06:00 highlights\nFresh content.",
+            source="pulse",
+            digest=True,
+        )
+
+        # The notes argument to `tasks add` should contain the new body
+        # AND a history section with both old bodies folded in.
+        notes_arg = next(
+            a for a in mock_gog.call_args[0] if a.startswith("--notes=")
+        )
+        assert "Fresh content" in notes_arg
+        assert "Prior pulse digest" in notes_arg
+        assert "Thing A happened" in notes_arg
+        assert "Thing B happened" in notes_arg
+        # Both old cards still get closed.
+        done_targets = [
+            call[0][3] for call in mock_gog.call_args_list
+            if call[0][:2] == ("tasks", "done")
+        ]
+        assert "old1" in done_targets
+        assert "old2" in done_targets
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
     def test_supersede_skipped_when_digest_false(
         self, mock_list, mock_gog
     ):

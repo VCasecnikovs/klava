@@ -792,9 +792,13 @@ def create_result(
     if digest:
         # Digests always want a fresh row; supersede any prior pending
         # digest with the same source so only the latest stays on the Deck.
+        # Append the prior digests' bodies to the new card so history is
+        # preserved (lossless rollup, not a discard).
         dedup_topic = False
         try:
-            _supersede_prior_digests(source, list_id=list_id)
+            history_block = _supersede_prior_digests(source, list_id=list_id)
+            if history_block:
+                body_text = body_text.rstrip() + "\n\n" + history_block
         except Exception as e:
             print(
                 f"[tasks.queue] digest supersede skipped ({e}); "
@@ -848,24 +852,33 @@ def create_result(
     )
 
 
-def _supersede_prior_digests(source: str, list_id: Optional[str] = None) -> int:
-    """Close any pending digest cards with the same `source` so only the
-    newest digest of each kind stays on the Deck.
+_DIGEST_HISTORY_CAP = 5
 
-    Returns count of cards superseded. Same-source identifies "same digest
-    type" — `source="pulse"` digests supersede other pulse digests but not
-    `source="reflection"` digests.
+
+def _supersede_prior_digests(
+    source: str, list_id: Optional[str] = None,
+) -> str:
+    """Close pending digest cards with the same `source` and return a
+    rolled-up history block for the new digest's body.
+
+    Same-source identifies "same digest type" — `source="pulse"` digests
+    supersede other pulse digests but not `source="reflection"` digests.
+
+    The returned string is markdown the caller appends below the new
+    digest body, so history is preserved on the latest card instead of
+    dropped. Capped at the last `_DIGEST_HISTORY_CAP` digests; older
+    ones are still closed but their bodies are not folded in.
 
     Safe-fail: if any individual close errors, log and continue.
     """
     if not source:
-        return 0
+        return ""
     try:
         existing = list_tasks(list_id=list_id, include_completed=False)
     except Exception:
-        return 0
+        return ""
 
-    superseded = 0
+    candidates = []
     for t in existing:
         if t.type != "result":
             continue
@@ -875,9 +888,32 @@ def _supersede_prior_digests(source: str, list_id: Optional[str] = None) -> int:
             continue
         if (t.source or "") != source:
             continue
+        candidates.append(t)
+
+    candidates.sort(key=lambda t: t.created or "", reverse=True)
+
+    history_lines: List[str] = []
+    foldable = candidates[:_DIGEST_HISTORY_CAP]
+    for t in foldable:
+        body = (t.body or "").strip()
+        # Strip the leading #result hashtag added by create_result so we
+        # don't repeat it in every fold.
+        if body.startswith("#result"):
+            body = body[len("#result"):].lstrip()
+        # Strip frontmatter if it leaked into body (defensive).
+        if body.startswith("---"):
+            body = body.split("---", 2)[-1].lstrip()
+        when = (t.created or "")[:16].replace("T", " ")
+        title_line = (t.title or "").replace("[RESULT]", "").strip()
+        history_lines.append(
+            f"## Prior {source} digest — {when} UTC"
+            f"\n_{title_line}_\n\n"
+            f"{body}\n"
+        )
+
+    for t in candidates:
         try:
             complete_task(t.id, list_id=list_id)
-            superseded += 1
             print(
                 f"[tasks.queue] digest supersede: closed prior {t.id} "
                 f"(source={source!r}) {t.title!r}",
@@ -888,7 +924,19 @@ def _supersede_prior_digests(source: str, list_id: Optional[str] = None) -> int:
                 f"[tasks.queue] digest supersede: failed to close {t.id}: {e}",
                 file=sys.stderr,
             )
-    return superseded
+
+    if not history_lines:
+        return ""
+
+    header = (
+        f"---\n\n"
+        f"## History — prior {source} digests"
+        f" ({len(history_lines)} folded in"
+    )
+    if len(candidates) > len(foldable):
+        header += f", {len(candidates) - len(foldable)} older closed without folding"
+    header += ")\n\n"
+    return header + "\n\n".join(history_lines)
 
 
 def _find_topic_match(
