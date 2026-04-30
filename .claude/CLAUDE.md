@@ -239,6 +239,8 @@ When writing a skill or a cron job that produces content the user should see:
 
 **Result topic dedup (default on).** `create_result()` scans recent (≤7d) result cards for one on the same topic — same explicit parent first, then a Claude `--print --model haiku` call (`tasks/llm_matcher.py`) that classifies the candidate set semantically, with token-Jaccard `_topic_similar()` as fallback when the LLM call fails or times out. If a pending match exists, the new body is appended as a timestamped Update section and `result_status` resets to `new`. If a match was acked (completed) within 48h, the new card is skipped entirely — user already saw it. Pass `dedup_topic=False` for inherently periodic cards (Pulse digests, daily reflections) that always want a fresh row. LLM call results are cached 30 min in `/tmp/klava-llm-matcher-cache/`.
 
+**Digest cards.** Periodic outputs (Pulse, Reflection, Mentor, Klava self-reports) should pass `digest=True` to `create_result()`. Two effects: (1) the card carries a `digest: true` frontmatter flag the Deck can use to render it in a separate, less-prominent section than artifact-with-ack cards; (2) auto-supersede — any prior pending digest with the same `source` is completed before the new one is created, so only the latest digest of each kind stays on the Deck. Implies `dedup_topic=False`.
+
 ### Heartbeat architecture
 
 - **Cron-scheduler is the sole TG sender.** The heartbeat script outputs to stdout only; the scheduler formats and posts.

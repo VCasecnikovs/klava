@@ -192,6 +192,7 @@ class Task:
     execute_after: Optional[str] = None    # ISO datetime; consumer skips until after
     resume_session_id: Optional[str] = None  # session to resume when executing (continue-in-session)
     continue_mode: Optional[str] = None    # execute | research-more | follow-up — continuation intent
+    digest: Optional[bool] = None          # true for digest-class result cards (Pulse, Reflection, Klava self-reports)
 
     @classmethod
     def from_gtask(cls, gtask: dict) -> "Task":
@@ -244,6 +245,7 @@ class Task:
             execute_after=frontmatter.get("execute_after") or None,
             resume_session_id=frontmatter.get("resume_session_id") or None,
             continue_mode=frontmatter.get("continue_mode") or None,
+            digest=(frontmatter.get("digest", "").strip().lower() == "true") or None,
         )
 
     def to_notes(self) -> str:
@@ -281,6 +283,8 @@ class Task:
             fields["resume_session_id"] = self.resume_session_id
         if self.continue_mode:
             fields["continue_mode"] = self.continue_mode
+        if self.digest:
+            fields["digest"] = "true"
         if self.session_id:
             fields["session_id"] = self.session_id
         if self.created:
@@ -492,6 +496,7 @@ def create_task(
     execute_after: Optional[str] = None,
     resume_session_id: Optional[str] = None,
     continue_mode: Optional[str] = None,
+    digest: bool = False,
     session_id: Optional[str] = None,
     status: str = "pending",
     dedup: bool = True,
@@ -616,6 +621,8 @@ def create_task(
         fields["resume_session_id"] = resume_session_id
     if continue_mode:
         fields["continue_mode"] = continue_mode
+    if digest:
+        fields["digest"] = "true"
     if session_id:
         fields["session_id"] = session_id
 
@@ -714,6 +721,7 @@ def create_result(
     session_id: Optional[str] = None,
     list_id: str = None,
     dedup_topic: bool = True,
+    digest: bool = False,
 ) -> str:
     """Create a `[RESULT]` card reporting on finished work.
 
@@ -749,6 +757,13 @@ def create_result(
         dedup_topic: if True (default), merge into an existing same-topic
             RESULT card instead of creating a duplicate. Set False for
             periodic digest cards that always want a fresh row.
+        digest: if True, mark as digest-class card (Pulse, Reflection, Klava
+            self-reports). Two effects: (1) Deck can render in a separate
+            section less prominently than artifact-with-ack cards;
+            (2) auto-supersede — any prior pending digest with the SAME
+            `source` is completed before this one is created, so only the
+            latest digest of each kind stays on the Deck. Implies
+            `dedup_topic=False` (digests always want a fresh row).
 
     Returns:
         The created GTask ID, or the id of the existing card that was
@@ -761,6 +776,19 @@ def create_result(
     # extractHashtags() and vadimgest FTS can match on #result.
     if not body_text.lstrip().startswith("#result"):
         body_text = "#result\n\n" + body_text if body_text else "#result\n"
+
+    if digest:
+        # Digests always want a fresh row; supersede any prior pending
+        # digest with the same source so only the latest stays on the Deck.
+        dedup_topic = False
+        try:
+            _supersede_prior_digests(source, list_id=list_id)
+        except Exception as e:
+            print(
+                f"[tasks.queue] digest supersede skipped ({e}); "
+                f"creating new digest anyway",
+                file=sys.stderr,
+            )
 
     if dedup_topic:
         match = _find_topic_match(parent_task_id, tag_title, list_id=list_id)
@@ -803,8 +831,52 @@ def create_result(
         result_status="new",
         session_id=session_id,
         status="pending",
+        digest=digest,
         list_id=list_id,
     )
+
+
+def _supersede_prior_digests(source: str, list_id: Optional[str] = None) -> int:
+    """Close any pending digest cards with the same `source` so only the
+    newest digest of each kind stays on the Deck.
+
+    Returns count of cards superseded. Same-source identifies "same digest
+    type" — `source="pulse"` digests supersede other pulse digests but not
+    `source="reflection"` digests.
+
+    Safe-fail: if any individual close errors, log and continue.
+    """
+    if not source:
+        return 0
+    try:
+        existing = list_tasks(list_id=list_id, include_completed=False)
+    except Exception:
+        return 0
+
+    superseded = 0
+    for t in existing:
+        if t.type != "result":
+            continue
+        if not t.digest:
+            continue
+        if t.status not in ("pending", "new"):
+            continue
+        if (t.source or "") != source:
+            continue
+        try:
+            complete_task(t.id, list_id=list_id)
+            superseded += 1
+            print(
+                f"[tasks.queue] digest supersede: closed prior {t.id} "
+                f"(source={source!r}) {t.title!r}",
+                file=sys.stderr,
+            )
+        except Exception as e:
+            print(
+                f"[tasks.queue] digest supersede: failed to close {t.id}: {e}",
+                file=sys.stderr,
+            )
+    return superseded
 
 
 def _find_topic_match(

@@ -1632,3 +1632,151 @@ class TestExecutionTagGuard:
         call_args = mock_gog.call_args[0]
         idx = call_args.index("--title")
         assert call_args[idx + 1] == "Research Acme Corp founders"
+
+
+class TestDigestFlag:
+    """Digest cards (Pulse, Reflection, Klava self-reports) carry a
+    `digest=true` frontmatter flag and auto-supersede prior digests with
+    the same source so only the latest stays on the Deck.
+    """
+
+    def test_digest_field_round_trips(self):
+        task = Task(
+            id="x", title="[RESULT] Pulse 14:00",
+            type="result", source="pulse",
+            digest=True, body="",
+        )
+        notes = task.to_notes()
+        assert "digest: true" in notes
+        meta, _ = parse_frontmatter(notes)
+        assert meta["digest"] == "true"
+
+    def test_task_from_gtask_parses_digest_true(self):
+        gtask = {
+            "id": "abc",
+            "title": "[RESULT] Reflection",
+            "notes": "---\nstatus: pending\ntype: result\ndigest: true\n---\n",
+            "status": "needsAction",
+        }
+        task = Task.from_gtask(gtask)
+        assert task.digest is True
+
+    def test_task_from_gtask_digest_unset_is_none(self):
+        gtask = {
+            "id": "abc",
+            "title": "Regular task",
+            "notes": "---\nstatus: pending\n---\n",
+            "status": "needsAction",
+        }
+        task = Task.from_gtask(gtask)
+        assert task.digest is None
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_create_task_digest_flag_lands_in_frontmatter(
+        self, mock_list, mock_gog
+    ):
+        from tasks.queue import create_task
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "d-1"}})
+        create_task(
+            "[RESULT] Pulse digest",
+            type="result",
+            source="pulse",
+            digest=True,
+        )
+        notes_arg = next(
+            a for a in mock_gog.call_args[0] if a.startswith("--notes=")
+        )
+        assert "digest: true" in notes_arg
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_supersede_closes_prior_pulse_digest(
+        self, mock_list, mock_gog
+    ):
+        """Regression: 2026-04-27 — Pulse cards stacked one per cron tick.
+        New pulse digest must close prior pending pulse digest.
+        """
+        from tasks.queue import create_result
+
+        old_pulse = Task(
+            id="old-pulse",
+            title="[RESULT] Pulse — Apr 25 14:00",
+            type="result",
+            source="pulse",
+            status="pending",
+            digest=True,
+        )
+        unrelated_result = Task(
+            id="unrelated",
+            title="[RESULT] Reply Diana",
+            type="result",
+            source="consumer",
+            status="pending",
+        )
+        other_digest = Task(
+            id="other-digest",
+            title="[RESULT] Reflection nightly",
+            type="result",
+            source="reflection",  # different source — must NOT be touched
+            status="pending",
+            digest=True,
+        )
+        mock_list.return_value = [old_pulse, unrelated_result, other_digest]
+        mock_gog.return_value = json.dumps({"task": {"id": "new-pulse"}})
+
+        create_result(
+            parent_task_id=None,
+            title="Pulse — Apr 25 20:00",
+            body="latest digest",
+            source="pulse",
+            digest=True,
+        )
+
+        # Find the `tasks done` calls (gog command for completing a task).
+        done_targets = []
+        for call in mock_gog.call_args_list:
+            args = call[0]
+            if args[:2] == ("tasks", "done"):
+                done_targets.append(args[3])  # gog tasks done <list_id> <task_id>
+
+        assert "old-pulse" in done_targets, \
+            "prior pulse digest must be superseded"
+        assert "other-digest" not in done_targets, \
+            "different-source digest must NOT be touched"
+        assert "unrelated" not in done_targets, \
+            "non-digest result must NOT be touched"
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_supersede_skipped_when_digest_false(
+        self, mock_list, mock_gog
+    ):
+        """Non-digest create_result must NOT supersede prior digests."""
+        from tasks.queue import create_result
+
+        old_pulse = Task(
+            id="old-pulse",
+            title="[RESULT] Pulse — Apr 25 14:00",
+            type="result",
+            source="pulse",
+            status="pending",
+            digest=True,
+        )
+        mock_list.return_value = [old_pulse]
+        mock_gog.return_value = json.dumps({"task": {"id": "new-result"}})
+
+        create_result(
+            parent_task_id=None,
+            title="Some non-digest result",
+            body="body",
+            source="consumer",  # not pulse
+            digest=False,
+        )
+
+        done_targets = [
+            call[0][3] for call in mock_gog.call_args_list
+            if call[0][:2] == ("tasks", "done")
+        ]
+        assert "old-pulse" not in done_targets
