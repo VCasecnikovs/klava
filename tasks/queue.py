@@ -690,6 +690,18 @@ def create_proposal(
         The created GTask ID.
     """
     tag_title = title if title.startswith("[PROPOSAL]") else f"[PROPOSAL] {title}"
+
+    rejected = is_recently_rejected(tag_title)
+    if rejected:
+        when = (rejected.get("rejected_at") or "")[:10]
+        reason = (rejected.get("reason") or "").strip() or "(no reason)"
+        print(
+            f"[tasks.queue] dedup-rejection: skipping create_proposal({tag_title!r}) "
+            f"— already rejected {when} (id={rejected.get('task_id')!r}, reason={reason!r})",
+            file=sys.stderr,
+        )
+        return ""
+
     body = f"## Plan\n{plan.strip()}\n" if plan else ""
     tags_joined = ",".join(mode_tags) if mode_tags else None
     return create_task(
@@ -1235,6 +1247,77 @@ def recent_rejections(
 
     records.reverse()
     return records[:limit]
+
+
+_PERMANENT_REJECT_PHRASES = (
+    "already replied",
+    "already done",
+    "already sent",
+    "уже ответил",
+    "уже сделал",
+    "already addressed",
+    "обсудили",
+    "outdated",
+    "не актуально",
+)
+
+REJECTION_DEDUP_DAYS = 14
+PERMANENT_REJECT_DAYS = 90
+
+
+def _strip_proposal_prefix(title: str) -> str:
+    s = (title or "").strip()
+    if s.startswith("[PROPOSAL]"):
+        s = s[len("[PROPOSAL]"):].strip()
+    return s
+
+
+def is_recently_rejected(
+    title: str,
+    days: int = REJECTION_DEDUP_DAYS,
+    path: Optional[Path] = None,
+) -> Optional[Dict[str, str]]:
+    """Return the matching rejection record if `title` was rejected recently.
+
+    Compares normalized titles (NFKC + dash fold + case + whitespace + prefix
+    strip) against the rejection log. Reasons containing permanent-reject
+    phrases ("already replied", "already done", ...) extend the lookup window
+    to PERMANENT_REJECT_DAYS so a once-and-done idea cannot keep resurfacing.
+
+    Returns the newest matching rejection record, or None.
+
+    Regression: 2026-04-30 — `[PROPOSAL] Draft Daniel follow-up` was rejected
+    4 times in 3 days with the same reason "Already replied Apr 14". The
+    idle-research prompt already injected the rejection log, but the LLM kept
+    re-minting the same idea anyway. This is the enforcement layer the
+    heartbeat / idle-research generators rely on rather than relying on prompt
+    discipline alone.
+    """
+    needle = _normalize_title(_strip_proposal_prefix(title))
+    if not needle:
+        return None
+    window_days = max(days, PERMANENT_REJECT_DAYS)
+    for rec in recent_rejections(limit=500, max_days=window_days, path=path):
+        rec_title = _normalize_title(_strip_proposal_prefix(rec.get("title", "")))
+        if rec_title != needle:
+            continue
+        reason = (rec.get("reason") or "").lower()
+        permanent = any(p in reason for p in _PERMANENT_REJECT_PHRASES)
+        try:
+            ts_raw = rec.get("rejected_at", "")
+            ts = datetime.fromisoformat(ts_raw)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except Exception:
+            ts = None
+        if ts is None:
+            return rec
+        age = datetime.now(timezone.utc) - ts
+        if permanent and age <= timedelta(days=PERMANENT_REJECT_DAYS):
+            return rec
+        if age <= timedelta(days=days):
+            return rec
+    return None
 
 
 def reject_proposal(task_id: str, reason: str = "", list_id: str = None) -> Task:

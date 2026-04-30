@@ -773,6 +773,144 @@ class TestRejectionLog:
         assert rec["reason"] == "Not now, too early"
 
 
+# Regression: 2026-04-30 — `[PROPOSAL] Draft Daniel follow-up` was rejected
+# 4 times in 3 days (Apr 27, Apr 30 x3) with identical reason
+# "Already replied Apr 14". Idle-research already inject the rejection log into
+# the prompt, but the LLM kept resurfacing the same idea anyway. The fix is
+# enforcement at the create_proposal() layer: if the normalized title matches a
+# recent rejection, skip creation entirely.
+class TestProposalRejectionDedup:
+    def test_is_recently_rejected_normalized_match(self, tmp_path):
+        from tasks.queue import is_recently_rejected, log_rejection, Task as T
+        path = tmp_path / "rejected.jsonl"
+        log_rejection(
+            T(id="gt-1", title="[PROPOSAL] Draft Daniel follow-up", type="proposal"),
+            reason="Already replied Apr 14",
+            path=path,
+        )
+        # exact title
+        m = is_recently_rejected("[PROPOSAL] Draft Daniel follow-up", path=path)
+        assert m is not None
+        assert m["task_id"] == "gt-1"
+        # title without prefix
+        m = is_recently_rejected("Draft Daniel follow-up", path=path)
+        assert m is not None
+        # case + whitespace drift
+        m = is_recently_rejected("[PROPOSAL]  draft   daniel  Follow-up  ", path=path)
+        assert m is not None
+
+    def test_is_recently_rejected_no_match(self, tmp_path):
+        from tasks.queue import is_recently_rejected, log_rejection, Task as T
+        path = tmp_path / "rejected.jsonl"
+        log_rejection(
+            T(id="gt-1", title="[PROPOSAL] Reply to Bogdan", type="proposal"),
+            reason="not now",
+            path=path,
+        )
+        assert is_recently_rejected("[PROPOSAL] Draft Daniel follow-up", path=path) is None
+
+    def test_is_recently_rejected_window_expires(self, tmp_path):
+        from tasks.queue import is_recently_rejected, recent_rejections
+        path = tmp_path / "rejected.jsonl"
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+        path.write_text(
+            json.dumps({
+                "rejected_at": old_ts,
+                "task_id": "gt-old",
+                "title": "[PROPOSAL] Stale idea",
+                "reason": "not interested",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        # outside the default 14d window AND reason is not permanent
+        assert is_recently_rejected("[PROPOSAL] Stale idea", days=14, path=path) is None
+        # widening the window picks it back up
+        assert is_recently_rejected("[PROPOSAL] Stale idea", days=30, path=path) is not None
+
+    def test_permanent_reject_extends_window(self, tmp_path):
+        """Reasons like 'already replied' keep the dedup live for 90 days."""
+        from tasks.queue import is_recently_rejected
+        path = tmp_path / "rejected.jsonl"
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
+        path.write_text(
+            json.dumps({
+                "rejected_at": old_ts,
+                "task_id": "gt-perm",
+                "title": "[PROPOSAL] Draft Daniel follow-up",
+                "reason": "Already replied Apr 14",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        # 14d window — but permanent-reject phrase widens to 90d
+        m = is_recently_rejected("[PROPOSAL] Draft Daniel follow-up", days=14, path=path)
+        assert m is not None
+        assert m["task_id"] == "gt-perm"
+
+    def test_create_proposal_skipped_when_recently_rejected(self, tmp_path, monkeypatch, capsys):
+        """End-to-end: create_proposal() refuses to mint a duplicate of a
+        recently-rejected idea, even if the caller (idle_research / heartbeat)
+        ignores the rejection log injected into its prompt."""
+        from tasks import queue as q
+
+        log_path = tmp_path / "rejected.jsonl"
+        monkeypatch.setattr(q, "REJECTED_PROPOSALS_PATH", log_path)
+
+        q.log_rejection(
+            q.Task(
+                id="gt-1",
+                title="[PROPOSAL] Draft Daniel follow-up",
+                type="proposal",
+                shape="reply",
+                mode_tags="deal,xov",
+                source="idle_research",
+                proposal_plan="1. Open note. 2. Draft reply.",
+            ),
+            reason="Already replied Apr 14",
+            path=log_path,
+        )
+
+        # If create_task is called, the dedup guard failed.
+        called = {}
+        def fake_create_task(**kwargs):
+            called["title"] = kwargs.get("title")
+            return "should-not-happen"
+        monkeypatch.setattr(q, "create_task", fake_create_task)
+
+        out = q.create_proposal(
+            title="Draft Daniel follow-up",
+            plan="1. Open note. 2. Draft reply.",
+            shape="reply",
+            mode_tags=["deal", "xov"],
+        )
+        assert out == "", "create_proposal must return empty when matching rejection"
+        assert "title" not in called, "create_task must NOT be invoked for a recently-rejected title"
+        err = capsys.readouterr().err
+        assert "dedup-rejection" in err
+
+    def test_create_proposal_passes_through_when_no_match(self, tmp_path, monkeypatch):
+        """A genuinely new proposal still gets created — guard isn't a global mute."""
+        from tasks import queue as q
+
+        log_path = tmp_path / "rejected.jsonl"
+        monkeypatch.setattr(q, "REJECTED_PROPOSALS_PATH", log_path)
+
+        q.log_rejection(
+            q.Task(id="gt-1", title="[PROPOSAL] Old thing", type="proposal"),
+            reason="no",
+            path=log_path,
+        )
+
+        seen = {}
+        def fake_create_task(**kwargs):
+            seen["title"] = kwargs.get("title")
+            return "gt-new"
+        monkeypatch.setattr(q, "create_task", fake_create_task)
+
+        out = q.create_proposal(title="Brand new idea", plan="do the thing", shape="act")
+        assert out == "gt-new"
+        assert seen["title"] == "[PROPOSAL] Brand new idea"
+
+
 # Result cards: every finished consumer task produces a [RESULT] card on the
 # Deck so the user sees output without digging through TG/Lifeline. Round-trip,
 # helper, and filtering behavior all need coverage.
