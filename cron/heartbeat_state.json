@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-01T16:46:21.545166+00:00",
+  "last_run": "2026-05-01T17:30:19.156539+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -484,7 +484,8 @@
     "eldil_shawn_sf_may4_6": "2026-05-01T16:46:21.545341+00:00",
     "synoptic_redlines_may1": "2026-05-01T16:46:21.545342+00:00",
     "vladik_birthday_may15": "2026-05-01T16:46:21.545343+00:00",
-    "vox_lab_misha_sync_may1": "2026-05-01T16:46:21.545344+00:00"
+    "vox_lab_misha_sync_may1": "2026-05-01T16:46:21.545344+00:00",
+    "signal_voxlabdev_20260501_leadgen_270": "2026-05-01T17:30:19.156691+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
