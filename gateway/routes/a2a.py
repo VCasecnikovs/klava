@@ -4,6 +4,7 @@ Extracted from webhook-server.py. All routes require bearer token auth.
 """
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,7 +62,8 @@ def trigger_job(job_id):
     if resp:
         return resp
     try:
-        jobs_file = _cfg.cron_jobs_file()
+        _injected_jobs = (_config or {}).get("cron", {}).get("jobs_file")
+        jobs_file = Path(os.path.expanduser(_injected_jobs)) if _injected_jobs else _cfg.cron_jobs_file()
         if not jobs_file.exists():
             return jsonify({"error": "Jobs file not found"}), 404
 
@@ -140,7 +142,8 @@ def trigger_job(job_id):
             "session_id": result.get("session_id"),
         }
 
-        runs_log = _cfg.cron_runs_log()
+        _injected_runs = (_config or {}).get("cron", {}).get("runs_log")
+        runs_log = Path(os.path.expanduser(_injected_runs)) if _injected_runs else _cfg.cron_runs_log()
         with open(runs_log, 'a') as f:
             f.write(json.dumps(run_entry) + '\n')
 

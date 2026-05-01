@@ -5,7 +5,7 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 118
+- Items added (30d): 139
 - Items fixed (30d): 83
 - Avg days open: 2
 - Last run: 2026-05-01
@@ -33,11 +33,11 @@
 ### [2026-04-28] task-consumer bash timeout not enforced: ran 6725s vs 3600s limit
 - **source:** self-evolve CRON analysis
 - **priority:** medium
-- **status:** proposed
+- **status:** done
 - **seen:** 1
 - **description:** Apr 27 20:19-22:11 UTC: task-consumer (bash mode, timeout_seconds=3600) ran 6725s (112 min) and exited with code 1. Expected: cron-scheduler kills bash at 3600s via subprocess.run(timeout=3600). Did not happen. Hypothesis: bash redirects consumer's stdout/stderr to file before exiting, making bash's pipe to subprocess.run stay open and preventing TimeoutExpired. After bash dies (by other means), the python3 consumer continues as orphan and runs to 6725s.
 - **fix-hint:** In cron-scheduler bash mode: after subprocess.run raises TimeoutExpired, also send SIGKILL to entire process group (os.killpg) to kill orphaned grandchildren. Or restructure bash command to not redirect inside bash (let subprocess handle it).
-- **note:** GT task for this is in `failed` state — may have been rejected or failed during execution.
+- **resolved:** 2026-05-01 Fixed in eeebca4: bash mode now uses Popen with start_new_session=True + os.killpg() on TimeoutExpired. Kills entire process group on timeout.
 
 ### [2026-05-01] self-evolve max_attempts regressed from 3 to 1
 - **source:** self-evolve scan
@@ -66,10 +66,11 @@
 ### [2026-05-01] task-consumer circuit breaker open 32h with no alert
 - **source:** self-evolve CRON analysis
 - **priority:** medium
-- **status:** proposed
+- **status:** done
 - **seen:** 1
 - **description:** task-consumer circuit breaker opened 2026-04-30T07:36 UTC and stayed open until 2026-05-01T15:51 UTC when scheduler was restarted (32 hours). During this window: 141 skipped runs, all queued tasks stalled. No TG alert was sent. Heartbeat was also tripped intermittently. Root cause of the April 30 fast failures (20s exit code 1) still unknown (log was cleared). The state is in-memory: scheduler restart always resets it, but there's no watchdog or alert for open circuit breakers.
 - **fix-hint:** Add circuit breaker alert to cron-scheduler: when a breaker opens for a job, send TG notification to Alerts topic (957395) with job name and failure count. Fire once at open, not every skip. Risk: MEDIUM (gateway/cron-scheduler.py change, Tier 3).
+- **resolved:** 2026-05-01 Committed in 6c2c73e: breakers_open state tracking + loud TG alert on closed→open transition, recovery alert on open→closed. Deployed via cron-scheduler restart.
 
 ### [2026-04-20] vadimgest-sync: 6 timeouts at 300s during Apr 19 API degradation window
 - **source:** self-evolve CRON analysis
@@ -349,6 +350,159 @@
 - **status:** unactionable
 - **seen:** 7
 - **description:** 7 vague dislikes: "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". No session context or text preview. Same recurring batch (Apr 20: 21, Apr 23: 7, Apr 25: 7, Apr 28: 7). Dedup check in SKILL.md prevents re-adding next time.
+
+### [2026-05-01] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-01] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-01] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-01] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-01] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-01] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-01] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-01] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-01] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-01] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-01] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-01] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-01] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-01] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-01] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-01] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-01] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-01] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-01] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-01] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-01] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
 
 ---
 
