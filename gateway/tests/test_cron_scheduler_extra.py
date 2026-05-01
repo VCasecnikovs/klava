@@ -1021,6 +1021,64 @@ class TestCircuitBreaker:
         mock_internal.assert_not_called()
         mock_alert.assert_called_once()
 
+    # Regression: Apr 30 - May 1, 2026. task-consumer's circuit breaker was
+    # open for 32h (141 skipped runs, queued tasks stalled) with no visible
+    # alert because the generic _send_failure_alert dedup ladder (1h/6h/24h)
+    # buried the breaker-open notification under the ongoing failure noise.
+    # The transition alert fires once on closed -> open without dedup.
+    def test_breaker_transition_fires_loud_alert_once(self, job_manager, minimal_config):
+        _, _, _, runs_log = minimal_config
+        self._write_runs(runs_log, [
+            {"job_id": "heartbeat", "status": "failed"},
+            {"job_id": "heartbeat", "status": "failed"},
+            {"job_id": "heartbeat", "status": "failed"},
+        ])
+        job = {"id": "heartbeat", "requires_internet": False}
+        job_manager._internet_available = True
+        job_manager.state = {"jobs_status": {}, "breakers_open": {}}
+
+        with patch.object(job_manager, "_execute_job_internal"), \
+             patch.object(job_manager, "_send_failure_alert"), \
+             patch.object(job_manager, "_send_breaker_open_alert") as mock_open_alert, \
+             patch.object(cs.ClaudeExecutor, "reap_stale_children"), \
+             patch.object(job_manager, "_save_state"):
+            job_manager._execute_job(job)
+            # Second tick while breaker still open should NOT re-alert.
+            job_manager._execute_job(job)
+
+        mock_open_alert.assert_called_once_with("heartbeat", 3)
+        assert "heartbeat" in job_manager.state["breakers_open"]
+
+    def test_breaker_recovery_alert_on_successful_run(self, job_manager):
+        job_manager.state = {
+            "jobs_status": {"task-consumer": {}},
+            "breakers_open": {
+                "task-consumer": {"opened_at": "2026-04-30T23:00:00+00:00", "failures": 3}
+            },
+        }
+        with patch.object(job_manager, "_send_breaker_closed_alert") as mock_closed, \
+             patch.object(job_manager, "_save_state"):
+            transitioned = job_manager._mark_breaker_closed("task-consumer")
+            if transitioned:
+                job_manager._send_breaker_closed_alert("task-consumer")
+
+        mock_closed.assert_called_once_with("task-consumer")
+        assert "task-consumer" not in job_manager.state["breakers_open"]
+
+    def test_mark_breaker_open_idempotent(self, job_manager):
+        """Second call while already open returns False - no double alert."""
+        job_manager.state = {"breakers_open": {}}
+        with patch.object(job_manager, "_save_state"):
+            assert job_manager._mark_breaker_open("heartbeat", 3) is True
+            assert job_manager._mark_breaker_open("heartbeat", 5) is False
+        # First call's value is preserved (not overwritten on no-op).
+        assert job_manager.state["breakers_open"]["heartbeat"]["failures"] == 3
+
+    def test_mark_breaker_closed_no_op_when_not_open(self, job_manager):
+        job_manager.state = {"breakers_open": {}}
+        with patch.object(job_manager, "_save_state"):
+            assert job_manager._mark_breaker_closed("heartbeat") is False
+
 
 class TestTimeoutNotRetryable:
     def test_timeout_after_is_not_retryable(self, job_manager):

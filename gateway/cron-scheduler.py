@@ -127,6 +127,12 @@ class JobManager:
         # Deferred queue persists across restarts so jobs skipped while offline
         # survive a daemon restart that happens before connectivity returns.
         self.state.setdefault("deferred_jobs", {})
+        # Tracks circuit breakers currently in the open state so we can fire
+        # one loud TG alert on the closed -> open transition and a recovery
+        # alert on the open -> closed transition, instead of relying on the
+        # generic _send_failure_alert dedup ladder (1h/6h/24h) that buried
+        # the Apr 30 task-consumer outage for 32h.
+        self.state.setdefault("breakers_open", {})
 
     def _load_config(self) -> Dict:
         """Load gateway config."""
@@ -254,6 +260,51 @@ class JobManager:
             return
         message = f"CRON Job Failed: {job_id}\nError: {error}\nDuration: {duration:.1f}s"
         send_feed(message, topic="Alerts", job_id=job_id)
+
+    def _mark_breaker_open(self, job_id: str, failures: int) -> bool:
+        """Record that a job's breaker is open. Returns True iff this is a
+        transition (was not already open) so the caller can fire a one-shot
+        alert. Survives daemon restart via state.json."""
+        breakers = self.state.setdefault("breakers_open", {})
+        if job_id in breakers:
+            return False
+        breakers[job_id] = {
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+            "failures": failures,
+        }
+        self._save_state()
+        return True
+
+    def _mark_breaker_closed(self, job_id: str) -> bool:
+        """Clear the breaker-open flag. Returns True iff it was previously
+        marked open (so the caller can fire a recovery alert)."""
+        breakers = self.state.setdefault("breakers_open", {})
+        if job_id not in breakers:
+            return False
+        breakers.pop(job_id, None)
+        self._save_state()
+        return True
+
+    def _send_breaker_open_alert(self, job_id: str, failures: int):
+        """One-shot loud alert on the closed -> open transition. Bypasses
+        the _should_alert dedup ladder so the user gets immediate visibility
+        instead of waiting on a 1h cooldown (regression: Apr 30 task-consumer
+        outage was invisible for 32h)."""
+        message = (
+            f"CIRCUIT BREAKER OPEN: {job_id}\n"
+            f"After {failures} consecutive failures. All scheduled runs will "
+            f"be skipped until a manual successful run is logged. Investigate "
+            f"and re-trigger the job (or restart cron-scheduler if the "
+            f"underlying issue is fixed)."
+        )
+        send_feed(message, topic="Alerts", job_id=job_id)
+        self.logger.warning(f"Breaker transition: {job_id} -> OPEN ({failures} failures)")
+
+    def _send_breaker_closed_alert(self, job_id: str):
+        """Recovery alert on the open -> closed transition."""
+        message = f"Circuit breaker CLOSED: {job_id} recovered after a successful run."
+        send_feed(message, topic="Alerts", job_id=job_id)
+        self.logger.info(f"Breaker transition: {job_id} -> CLOSED")
 
     def _consecutive_failures(self, job_id: str, limit: int = 3) -> int:
         """Count trailing consecutive failures for job_id in runs.jsonl.
@@ -1025,6 +1076,8 @@ class JobManager:
                 "run_id": f"{job_id}_{int(time.time())}_breaker",
                 "error": f"Circuit breaker open: {failures} consecutive failures",
             })
+            if self._mark_breaker_open(job_id, failures):
+                self._send_breaker_open_alert(job_id, failures)
             self._send_failure_alert(
                 job_id,
                 f"Circuit breaker OPEN: {failures} consecutive failures. "
@@ -1427,6 +1480,8 @@ class JobManager:
             self._send_failure_alert(job_id, f"FAILED after {max_attempts} attempts. Last error: {error_msg}", duration)
         else:
             self.logger.info(f"Job {job_id} completed in {duration:.1f}s")
+            if self._mark_breaker_closed(job_id):
+                self._send_breaker_closed_alert(job_id)
 
             topic = self._resolve_topic(job)
             sid = run_entry.get("session_id")
