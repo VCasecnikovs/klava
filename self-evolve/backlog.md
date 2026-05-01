@@ -5,10 +5,10 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 107
-- Items fixed (30d): 79
-- Avg days open: 0
-- Last run: 2026-04-28
+- Items added (30d): 118
+- Items fixed (30d): 83
+- Avg days open: 2
+- Last run: 2026-05-01
 
 ---
 
@@ -37,6 +37,39 @@
 - **seen:** 1
 - **description:** Apr 27 20:19-22:11 UTC: task-consumer (bash mode, timeout_seconds=3600) ran 6725s (112 min) and exited with code 1. Expected: cron-scheduler kills bash at 3600s via subprocess.run(timeout=3600). Did not happen. Hypothesis: bash redirects consumer's stdout/stderr to file before exiting, making bash's pipe to subprocess.run stay open and preventing TimeoutExpired. After bash dies (by other means), the python3 consumer continues as orphan and runs to 6725s.
 - **fix-hint:** In cron-scheduler bash mode: after subprocess.run raises TimeoutExpired, also send SIGKILL to entire process group (os.killpg) to kill orphaned grandchildren. Or restructure bash command to not redirect inside bash (let subprocess handle it).
+- **note:** GT task for this is in `failed` state — may have been rejected or failed during execution.
+
+### [2026-05-01] self-evolve max_attempts regressed from 3 to 1
+- **source:** self-evolve scan
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** self-evolve job had max_attempts=1 (0 retries). Previously fixed to 3 (backlog item 2026-04-09) but regressed — likely overwritten in a jobs.json edit. With 1 attempt, transient API failures trip the breaker immediately. Caused 4 self-evolve failures since Apr 27: ConnectionRefused, 1830s timeout, SIGTERM, "Control request timeout: initialize".
+- **resolved:** 2026-05-01 Bumped max_attempts 1→3, delay_minutes 60 (unchanged). Also bumped timeout 1800→2700s (45 min) for complex backlog days.
+
+### [2026-05-01] evidence-closer: timed out at 1800s (May 1 run)
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** evidence-closer failed today with "Timeout after 1800s (killed process group)". Job runs daily at 5:15 AM, walks all pending [RESULT] cards, queries vadimgest FTS5, calls haiku for each. With growing result card backlog (~200 cards, limit 200), 30 min not enough.
+- **resolved:** 2026-05-01 Bumped timeout_seconds 1800→3600 in jobs.json.
+
+### [2026-05-01] heartbeat circuit breaker tripped 12 times in 24h
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** heartbeat had 12 failures in last 24h ("Control request timeout: initialize") vs 16 successes. With max_attempts=2 and delay=5min, 3 consecutive fast failures trip the circuit breaker easily. Pattern matches what pulse had (fixed Apr 7: max_attempts 2→3, delay 5→30).
+- **resolved:** 2026-05-01 Bumped heartbeat max_attempts 2→3, delay_minutes 5→15 in jobs.json.
+
+### [2026-05-01] task-consumer circuit breaker open 32h with no alert
+- **source:** self-evolve CRON analysis
+- **priority:** medium
+- **status:** proposed
+- **seen:** 1
+- **description:** task-consumer circuit breaker opened 2026-04-30T07:36 UTC and stayed open until 2026-05-01T15:51 UTC when scheduler was restarted (32 hours). During this window: 141 skipped runs, all queued tasks stalled. No TG alert was sent. Heartbeat was also tripped intermittently. Root cause of the April 30 fast failures (20s exit code 1) still unknown (log was cleared). The state is in-memory: scheduler restart always resets it, but there's no watchdog or alert for open circuit breakers.
+- **fix-hint:** Add circuit breaker alert to cron-scheduler: when a breaker opens for a job, send TG notification to Alerts topic (957395) with job name and failure count. Fire once at open, not every skip. Risk: MEDIUM (gateway/cron-scheduler.py change, Tier 3).
 
 ### [2026-04-20] vadimgest-sync: 6 timeouts at 300s during Apr 19 API degradation window
 - **source:** self-evolve CRON analysis
@@ -309,6 +342,13 @@
 - **status:** unactionable
 - **seen:** 7
 - **description:** Same 7 vague dislikes appearing for 3rd time (Apr 20: 21 items, Apr 23: 7 items, Apr 25: 7 items). No session context, no text preview. Root cause: SKILL.md lacks dedup check before writing feedback items to backlog. Fixed 2026-04-26: added dedup instruction to SKILL.md feedback processing section.
+
+### [2026-04-28] Vague dislike feedback batch (7 items, 4th occurrence)
+- **source:** dislike
+- **priority:** low
+- **status:** unactionable
+- **seen:** 7
+- **description:** 7 vague dislikes: "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". No session context or text preview. Same recurring batch (Apr 20: 21, Apr 23: 7, Apr 25: 7, Apr 28: 7). Dedup check in SKILL.md prevents re-adding next time.
 
 ---
 
