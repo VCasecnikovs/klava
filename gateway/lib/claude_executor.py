@@ -9,6 +9,17 @@ import time
 from pathlib import Path
 from typing import Dict, Optional, List, AsyncIterator, Callable
 
+# Bump SDK initialize_timeout from default 60s to 180s.
+# Regression: 2026-04-30..05-01 cluster of "Control request timeout: initialize"
+# failures (heartbeat/mentor/pulse/task-consumer) when long-running
+# cron-scheduler accumulated state and the spawned `claude` CLI couldn't
+# respond to the SDK's `initialize` control request inside 60s. SDK reads
+# CLAUDE_CODE_STREAM_CLOSE_TIMEOUT (ms) at ClaudeSDKClient construction time
+# and clamps to a 60s floor — so this only ever raises the timeout, never
+# lowers it. Set BEFORE `from claude_agent_sdk import ...` so the env is
+# in place when the SDK module reads it.
+os.environ.setdefault("CLAUDE_CODE_STREAM_CLOSE_TIMEOUT", "180000")
+
 from claude_agent_sdk import (
     ClaudeSDKClient, ClaudeAgentOptions,
     AssistantMessage, ResultMessage, TextBlock, ToolUseBlock,
