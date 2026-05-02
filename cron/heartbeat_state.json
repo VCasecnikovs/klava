@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-02T14:32:43.805140+00:00",
+  "last_run": "2026-05-02T15:19:45.412074+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -516,7 +516,10 @@
     "gtasks_synoptic_tasks_seen": "2026-05-02T07:16:34.416779+00:00",
     "gtasks_amazon_books_seen": "2026-05-02T07:16:34.416779+00:00",
     "mercury_io_credit_may2": "2026-05-02T08:54:24.008929+00:00",
-    "pufit_signal_2026-05-02_northmodellabs": "2026-05-02T13:51:20.219870+00:00"
+    "pufit_signal_2026-05-02_northmodellabs": "2026-05-02T13:51:20.219870+00:00",
+    "dima_customs_hts4901_may2": "2026-05-02T15:19:45.412249+00:00",
+    "dima_olympiad_stem_may2_dedup": "2026-05-02T15:19:45.412251+00:00",
+    "pulse_may2_1800_noise": "2026-05-02T15:19:45.412253+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
