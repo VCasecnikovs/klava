@@ -5,10 +5,10 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 139
-- Items fixed (30d): 83
-- Avg days open: 2
-- Last run: 2026-05-01
+- Items added (30d): 140
+- Items fixed (30d): 84
+- Avg days open: 1
+- Last run: 2026-05-02
 
 ---
 
@@ -351,158 +351,21 @@
 - **seen:** 7
 - **description:** 7 vague dislikes: "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". No session context or text preview. Same recurring batch (Apr 20: 21, Apr 23: 7, Apr 25: 7, Apr 28: 7). Dedup check in SKILL.md prevents re-adding next time.
 
-### [2026-05-01] Bad response
+### [2026-05-01] Vague dislike feedback batch (21 items, 5th occurrence)
 - **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad response
+- **priority:** low
+- **status:** unactionable
+- **seen:** 21
+- **description:** Same 7 vague dislikes x3: "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". feedback.jsonl has 0 pending items — these were hallucinated by the self-evolve agent reading prior backlog examples. Root cause: AI confabulates feedback from training memory when it sees prior examples in the backlog. Fix: SKILL.md updated to explicitly require feedback.jsonl source verification.
+- **resolved:** 2026-05-02 Cleaned up 21 hallucinated items. Added CRITICAL warning to SKILL.md blocking hallucination path.
 
-### [2026-05-01] bad
-- **source:** dislike
+### [2026-05-02] executor.run() lacks wall-clock kill watchdog - task ran 8533s
+- **source:** self-evolve CRON analysis
 - **priority:** medium
-- **status:** open
+- **status:** proposed
 - **seen:** 1
-- **description:** bad
-
-### [2026-05-01] Dislike on block #block-42
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-xyz
-- **description:** Bad output text
-
-### [2026-05-01] Dislike on block #block-1
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
-
-### [2026-05-01] Bad output
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad output
-
-### [2026-05-01] Output was wrong
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-99
-- **description:** Some context
-
-### [2026-05-01] Dislike on block #blk-5
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
-
-### [2026-05-01] Bad response
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad response
-
-### [2026-05-01] bad
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** bad
-
-### [2026-05-01] Dislike on block #block-42
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-xyz
-- **description:** Bad output text
-
-### [2026-05-01] Dislike on block #block-1
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
-
-### [2026-05-01] Bad output
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad output
-
-### [2026-05-01] Output was wrong
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-99
-- **description:** Some context
-
-### [2026-05-01] Dislike on block #blk-5
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
-
-### [2026-05-01] Bad response
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad response
-
-### [2026-05-01] bad
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** bad
-
-### [2026-05-01] Dislike on block #block-42
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-xyz
-- **description:** Bad output text
-
-### [2026-05-01] Dislike on block #block-1
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
-
-### [2026-05-01] Bad output
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad output
-
-### [2026-05-01] Output was wrong
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-99
-- **description:** Some context
-
-### [2026-05-01] Dislike on block #blk-5
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
+- **description:** task-consumer ran 8533s on May 2 (03:16-05:38 UTC) despite both TASK_TIMEOUT=3600 and cron-scheduler bash timeout=3600. Root cause: ClaudeExecutor.run() (blocking mode, used by consumer.py) has no wall-clock kill watchdog. run_detached() has _hard_kill_watchdog but run() does not. asyncio.timeout(N) can fail on macOS when receive_messages() blocks in C-level code. Second occurrence (Apr 27: 6725s was previous).
+- **fix-hint:** Add _hard_kill_watchdog thread to executor.run() similar to run_detached(). Hard deadline = time.time() + timeout + 60. Kills children at deadline regardless of asyncio state. Risk: MEDIUM (gateway/lib/claude_executor.py, affects cron-scheduler + tg-gateway). GT proposal created.
 
 ---
 
