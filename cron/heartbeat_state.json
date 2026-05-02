@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-01T19:56:14.095734+00:00",
+  "last_run": "2026-05-02T02:27:48.805670+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -500,7 +500,15 @@
     "shawn_ant_live_signal_may1": "2026-05-01T19:56:14.095734+00:00",
     "eldil_deal_ant_update_may1": "2026-05-01T19:56:14.095734+00:00",
     "sergey_anosov_call_may1": "2026-05-01T19:56:14.095734+00:00",
-    "dima_books_wedding_may1": "2026-05-01T19:56:14.095734+00:00"
+    "dima_books_wedding_may1": "2026-05-01T19:56:14.095734+00:00",
+    "ant_rejected_ebooks_may2": "2026-05-02T02:27:48.805670+00:00",
+    "kirill_lopatin_meeting_prep_may2": "2026-05-02T02:27:48.805670+00:00",
+    "books_hindi_manifest_task_may2": "2026-05-02T02:27:48.805670+00:00",
+    "synoptic_redlines_task_may2": "2026-05-02T02:27:48.805670+00:00",
+    "amazon_books_lead_may2": "2026-05-02T02:27:48.805670+00:00",
+    "aayush_dinner_may2": "2026-05-02T02:27:48.805670+00:00",
+    "morning_brief_may2": "2026-05-02T02:27:48.805670+00:00",
+    "eldil_deal_updated_may2": "2026-05-02T02:27:48.805670+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
@@ -706,6 +714,26 @@
       "attendees": [
         "vadims@vox-lab.com"
       ]
+    },
+    "kirill_lopatin_may2_1430": {
+      "title": "Kirill Lopatin <> Vadims",
+      "start": "2026-05-02T14:30",
+      "attendees": [
+        "kirill@xaid.ai",
+        "casecnikov@gmail.com"
+      ]
+    },
+    "dinner_ayush_may2_1900": {
+      "title": "Dinner with Ayush",
+      "start": "2026-05-02T19:00",
+      "attendees": [
+        "dskorinkina@gmail.com"
+      ]
+    },
+    "vox_standup2_may15": {
+      "title": "Vox Standup 2",
+      "start": "2026-05-15T09:00",
+      "attendees": []
     }
   }
 }
