@@ -6,7 +6,7 @@
 
 ## Metrics
 - Items added (30d): 140
-- Items fixed (30d): 84
+- Items fixed (30d): 85
 - Avg days open: 1
 - Last run: 2026-05-02
 
@@ -362,10 +362,10 @@
 ### [2026-05-02] executor.run() lacks wall-clock kill watchdog - task ran 8533s
 - **source:** self-evolve CRON analysis
 - **priority:** medium
-- **status:** proposed
+- **status:** done
 - **seen:** 1
 - **description:** task-consumer ran 8533s on May 2 (03:16-05:38 UTC) despite both TASK_TIMEOUT=3600 and cron-scheduler bash timeout=3600. Root cause: ClaudeExecutor.run() (blocking mode, used by consumer.py) has no wall-clock kill watchdog. run_detached() has _hard_kill_watchdog but run() does not. asyncio.timeout(N) can fail on macOS when receive_messages() blocks in C-level code. Second occurrence (Apr 27: 6725s was previous).
-- **fix-hint:** Add _hard_kill_watchdog thread to executor.run() similar to run_detached(). Hard deadline = time.time() + timeout + 60. Kills children at deadline regardless of asyncio state. Risk: MEDIUM (gateway/lib/claude_executor.py, affects cron-scheduler + tg-gateway). GT proposal created.
+- **resolved:** 2026-05-02 Added wall-clock kill watchdog to run(): soft deadline (timeout+30s) returns timeout error dict + kills SDK children; hard deadline (timeout+60s) in watchdog thread os._exit(1)s. Same pattern run_detached() already uses. [407bb11]
 
 ---
 
