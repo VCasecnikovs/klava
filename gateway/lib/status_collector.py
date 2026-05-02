@@ -211,6 +211,27 @@ def _calculate_next_run(job: Dict, from_time: datetime) -> Optional[datetime]:
     return None
 
 
+def _expected_interval_hours(schedule_expr, now: datetime) -> Optional[float]:
+    """Return the source's cron-fire interval in hours, or None if unparseable.
+
+    Used to scale the source-staleness threshold by the source's own cadence so
+    that daily-cron sources (e.g. linkedin `0 6 * * *`) don't flap as stale 22h
+    out of every 24h.
+    """
+    if not schedule_expr or not isinstance(schedule_expr, str):
+        return None
+    try:
+        from croniter import croniter
+        if not croniter.is_valid(schedule_expr):
+            return None
+        it = croniter(schedule_expr, now)
+        a = it.get_next(datetime)
+        b = it.get_next(datetime)
+        return max(0.0, (b - a).total_seconds() / 3600)
+    except Exception:
+        return None
+
+
 def _format_timedelta(delta) -> str:
     """Format timedelta as human-readable string."""
     total_seconds = int(delta.total_seconds())
@@ -451,6 +472,7 @@ def _collect_fresh_dashboard_data() -> Dict:
     # Pre-load check_ready results for all sources
     _deps_cache: dict = {}
     _enabled_cache: dict = {}
+    _schedule_cache: dict = {}
     try:
         import sys as _sys
         _vg_root = str(VADIMGEST_DIR)
@@ -467,9 +489,12 @@ def _collect_fresh_dashboard_data() -> Dict:
                 except Exception:
                     _deps_cache[_src_name] = {"ok": True}
             try:
-                _enabled_cache[_src_name] = bool(get_source_config(_src_name).get("enabled", False))
+                _src_cfg = get_source_config(_src_name)
+                _enabled_cache[_src_name] = bool(_src_cfg.get("enabled", False))
+                _schedule_cache[_src_name] = _src_cfg.get("schedule")
             except Exception:
                 _enabled_cache[_src_name] = True
+                _schedule_cache[_src_name] = None
     except Exception:
         pass
 
@@ -509,7 +534,15 @@ def _collect_fresh_dashboard_data() -> Dict:
                         if dt.tzinfo is None:
                             dt = dt.astimezone()
                         age_hours = (now - dt).total_seconds() / 3600
-                        healthy = age_hours < 2
+                        # Threshold scales with the source's own cadence so
+                        # daily-cron sources (linkedin `0 6 * * *`) aren't
+                        # flagged stale 22h out of every 24h. 2h floor keeps
+                        # high-frequency sources alerting promptly.
+                        expected_h = _expected_interval_hours(
+                            _schedule_cache.get(name), now
+                        )
+                        threshold_h = 2.0 if expected_h is None else max(2.0, 2 * expected_h)
+                        healthy = age_hours < threshold_h
                 else:
                     healthy = False
 

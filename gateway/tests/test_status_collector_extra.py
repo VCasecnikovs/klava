@@ -1122,6 +1122,100 @@ class TestCollectFreshDashboardData:
         assert tg["healthy"] is True
         assert sig["healthy"] is False
 
+    def test_expected_interval_hours(self):
+        """Cron-fire interval helper used to scale stale threshold."""
+        now = datetime(2026, 5, 2, 12, 0, tzinfo=timezone.utc)
+        # Daily at 06:00 -> 24h interval.
+        assert sc._expected_interval_hours("0 6 * * *", now) == 24.0
+        # Every 15 minutes -> 0.25h.
+        assert sc._expected_interval_hours("*/15 * * * *", now) == 0.25
+        # Every 2 hours -> 2h.
+        assert sc._expected_interval_hours("0 */2 * * *", now) == 2.0
+        # Hourly -> 1h.
+        assert sc._expected_interval_hours("0 * * * *", now) == 1.0
+        # Garbage / missing -> None (caller falls back to 2h floor).
+        assert sc._expected_interval_hours("not a cron", now) is None
+        assert sc._expected_interval_hours(None, now) is None
+        assert sc._expected_interval_hours("", now) is None
+
+    def test_daily_cron_source_not_stale_after_few_hours(self, tmp_path, monkeypatch):
+        """Regression: linkedin (cron `0 6 * * *`) was flagged stale 22h/24h.
+
+        Date: 2026-05-02. The hardcoded 2h threshold flipped any source on a
+        daily cadence to unhealthy almost permanently, generating false
+        "Data source stale: linkedin" cards on the Deck. Threshold now scales
+        with the source's own cron interval (2x cadence, 2h floor).
+        """
+        cron_dir = tmp_path / "cron"
+        cron_dir.mkdir()
+        monkeypatch.setattr(sc, "CRON_DIR", cron_dir)
+        vg_dir = tmp_path / "vg"
+        vg_data = vg_dir / "data"
+        vg_data.mkdir(parents=True)
+        monkeypatch.setattr(sc, "VADIMGEST_DIR", vg_dir)
+        monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills")
+        monkeypatch.setattr(sc, "SETTINGS_FILE", tmp_path / "settings.json")
+        monkeypatch.setattr(sc, "CLAUDE_DIR", tmp_path)
+        monkeypatch.setattr(sc, "OBSIDIAN_DIR", tmp_path / "brain")
+
+        now = datetime.now(timezone.utc)
+        # linkedin: synced 6h ago (well within a daily cadence)
+        # gmail:    synced 6h ago (way past its 15-min cadence)
+        (vg_data / "state.json").write_text(json.dumps({
+            "linkedin": {"total_records": 2157, "last_ts": (now - timedelta(hours=6)).isoformat()},
+            "gmail":    {"total_records": 100,  "last_ts": (now - timedelta(hours=6)).isoformat()},
+        }))
+
+        # Stub vadimgest config so each source reports its real schedule.
+        # Mirrors the production wiring (`get_source_config(name).schedule`).
+        import importlib
+        import types
+        fake_vg_config = types.ModuleType("vadimgest.config")
+
+        def _fake_load_config():
+            return {}
+        _fake_load_config.cache_clear = lambda: None
+
+        def _fake_get_source_config(name):
+            return {
+                "linkedin": {"enabled": True, "schedule": "0 6 * * *"},
+                "gmail":    {"enabled": True, "schedule": "*/15 * * * *"},
+            }.get(name, {"enabled": True})
+
+        fake_vg_config.load_config = _fake_load_config
+        fake_vg_config.get_source_config = _fake_get_source_config
+
+        fake_vg_sources = types.ModuleType("vadimgest.ingest.sources")
+        fake_vg_sources.all_source_names = lambda: ["linkedin", "gmail"]
+        fake_vg_sources.get_syncer_class = lambda name: None  # skip dep checks
+
+        # Pre-seed the import system so status_collector picks up our stubs.
+        monkeypatch.setitem(sys.modules, "vadimgest.config", fake_vg_config)
+        monkeypatch.setitem(sys.modules, "vadimgest.ingest.sources", fake_vg_sources)
+
+        with patch("subprocess.run", return_value=MagicMock(stdout="", returncode=0)), \
+             patch.object(sc, "_collect_services", return_value=[]), \
+             patch.object(sc, "_collect_agent_activity", return_value=[]), \
+             patch.object(sc, "_collect_tool_calls", return_value={"sessions": [], "by_tool": {}, "total_24h": 0, "recent": []}), \
+             patch.object(sc, "_collect_reply_queue", return_value={"items": [], "total": 0, "overdue": 0, "by_type": {}}), \
+             patch.object(sc, "_collect_skill_inventory", return_value=[]), \
+             patch.object(sc, "_collect_mcp_servers", return_value=[]), \
+             patch.object(sc, "_collect_qq_markers", return_value=[]), \
+             patch.object(sc, "_collect_skill_changes", return_value=[]), \
+             patch.object(sc, "_collect_error_learning", return_value={"errors_found": 0}), \
+             patch.object(sc, "_collect_evolution_timeline", return_value=[]), \
+             patch.object(sc, "_collect_growth_metrics", return_value={}), \
+             patch.object(sc, "_collect_obsidian_metrics", return_value={"total_notes": 0}), \
+             patch.object(sc, "_collect_claude_md_details", return_value={"memory_lines": 0}), \
+             patch.object(sc, "_collect_daily_notes_status", return_value={}):
+            result = sc._collect_fresh_dashboard_data()
+
+        sources = {s["name"]: s for s in result["data_sources"]}
+        # 6h since sync, daily cadence -> threshold 48h -> still healthy.
+        assert sources["linkedin"]["healthy"] is True
+        # 6h since sync, 15-min cadence -> threshold 2h -> stale.
+        assert sources["gmail"]["healthy"] is False
+
     def test_cron_schedule_display_variants(self, tmp_path, monkeypatch):
         """Tests schedule_display for different schedule types."""
         cron_dir = tmp_path / "cron"
