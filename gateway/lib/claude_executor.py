@@ -337,22 +337,100 @@ class ClaudeExecutor:
 
         self.log(f"Executing streaming query: model={model}, mode={mode}...")
 
-        try:
-            result = asyncio.run(
-                self._run_streaming(prompt, options, timeout, text_callback, tool_callback)
+        # Wall-clock kill watchdog. asyncio.timeout() can fail to fire when
+        # receive_messages() blocks in a non-cancellable C-level read, or when
+        # macOS system sleep pauses the event loop. The bash-level timeout in
+        # cron-scheduler (proc.communicate(timeout=...)) has also been observed
+        # to fail under the same conditions. So run() needs its own watchdog.
+        # Regression: 2026-04-27 task-consumer ran 6725s past 3600s timeout;
+        # 2026-05-02 same pattern, 8533s. Pattern mirrors run_detached().
+        result_holder = {
+            "done": threading.Event(),
+            "result": None,
+            "exception": None,
+        }
+        soft_deadline = time.time() + timeout + 30
+        hard_deadline = time.time() + timeout + 60
+
+        def _run_in_thread():
+            try:
+                r = asyncio.run(
+                    self._run_streaming(prompt, options, timeout, text_callback, tool_callback)
+                )
+                result_holder["result"] = r
+            except BaseException as e:
+                self.log(f"Execution failed: {e}")
+                if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                    result_holder["exception"] = e
+                else:
+                    result_holder["result"] = {
+                        "error": str(e),
+                        "session_id": session_id,
+                        "cost": 0.0,
+                        "duration": 0,
+                        "exit_code": -1,
+                    }
+            finally:
+                result_holder["done"].set()
+
+        def _hard_kill_watchdog():
+            while time.time() < hard_deadline:
+                if result_holder["done"].is_set():
+                    return
+                time.sleep(10)
+            if result_holder["done"].is_set():
+                return
+            self.log(
+                f"HARD KILL: run() exceeded wall-clock deadline "
+                f"({timeout + 60}s), force-killing SDK children and process"
             )
-            return result
-        except BaseException as e:
-            self.log(f"Execution failed: {e}")
-            if isinstance(e, (KeyboardInterrupt, SystemExit)):
-                raise
-            return {
-                "error": str(e),
-                "session_id": session_id,
-                "cost": 0.0,
-                "duration": 0,
-                "exit_code": -1,
-            }
+            try:
+                ClaudeExecutor._kill_orphaned_children(os.getpid(), "run", self.log)
+            except Exception:
+                pass
+            try:
+                from lib.process_reaper import reap_orphaned_children
+                reap_orphaned_children(parent_pid=os.getpid(), max_age_seconds=0)
+            except Exception:
+                pass
+            time.sleep(2)
+            os._exit(1)
+
+        worker = threading.Thread(target=_run_in_thread, daemon=True)
+        worker.start()
+        watchdog = threading.Thread(target=_hard_kill_watchdog, daemon=True)
+        watchdog.start()
+
+        # Wall-clock-checked wait. Event.wait() uses pthread_cond_timedwait
+        # which pauses during macOS system sleep, so we cap each wait slice
+        # at 5s and re-check the wall clock. Same pattern as wait_for_result().
+        while time.time() < soft_deadline:
+            remaining = max(0.0, soft_deadline - time.time())
+            if result_holder["done"].wait(timeout=min(5.0, remaining)):
+                break
+
+        if result_holder["exception"] is not None:
+            raise result_holder["exception"]
+
+        if result_holder["result"] is not None:
+            return result_holder["result"]
+
+        self.log(
+            f"run() exceeded soft deadline ({timeout + 30}s); killing SDK "
+            f"children and returning timeout error. Watchdog will hard-kill "
+            f"the process at +{timeout + 60}s if it stays wedged."
+        )
+        try:
+            self._kill_orphaned_children(os.getpid(), "run", self.log)
+        except Exception:
+            pass
+        return {
+            "error": f"Timeout after {timeout}s (wall clock)",
+            "session_id": session_id,
+            "cost": 0.0,
+            "duration": timeout,
+            "exit_code": -1,
+        }
 
     def run_detached(
         self,

@@ -444,6 +444,60 @@ class TestRunGenericException:
         assert any("failed" in c.lower() or "oops" in c.lower() for c in calls)
 
 
+# ── run: wall-clock kill watchdog ──
+
+class TestRunWatchdog:
+    """Regression: 2026-04-27 (6725s) and 2026-05-02 (8533s) task-consumer
+    hangs past TASK_TIMEOUT=3600s. asyncio.timeout() and the cron-scheduler's
+    proc.communicate(timeout=...) both failed. run() now wraps asyncio.run()
+    in a worker thread with a wall-clock soft deadline + hard-kill watchdog.
+    """
+
+    def setup_method(self):
+        self.executor = ClaudeExecutor(log_callback=lambda x: None)
+
+    def test_soft_deadline_returns_timeout_error(self):
+        """If _run_streaming wedges past timeout+30s soft deadline, run()
+        returns a timeout error dict instead of blocking forever."""
+        async def _hang(*a, **kw):
+            await asyncio.sleep(60)
+            return {"result": "never"}
+
+        with patch.object(ClaudeExecutor, "_run_streaming", side_effect=_hang), \
+             patch.object(ClaudeExecutor, "_kill_orphaned_children"):
+            t0 = time.time()
+            result = self.executor.run(prompt="test", timeout=0)
+            elapsed = time.time() - t0
+
+        assert "Timeout" in result.get("error", "")
+        assert result["exit_code"] == -1
+        assert elapsed < 35
+
+    def test_kills_children_on_soft_timeout(self):
+        """Soft-timeout path calls _kill_orphaned_children before returning."""
+        async def _hang(*a, **kw):
+            await asyncio.sleep(60)
+            return {"result": "never"}
+
+        with patch.object(ClaudeExecutor, "_run_streaming", side_effect=_hang), \
+             patch.object(ClaudeExecutor, "_kill_orphaned_children") as mock_kill:
+            self.executor.run(prompt="test", timeout=0)
+
+        mock_kill.assert_called()
+
+    def test_normal_completion_does_not_trigger_watchdog(self):
+        """Watchdog must not fire when worker thread completes promptly."""
+        with patch.object(ClaudeExecutor, "_run_streaming", new_callable=AsyncMock,
+                          return_value={"result": "ok", "exit_code": 0,
+                                        "cost": 0, "duration": 1, "session_id": "s"}), \
+             patch("os._exit") as mock_exit:
+            result = self.executor.run(prompt="test", timeout=300)
+            time.sleep(0.2)
+
+        assert result["result"] == "ok"
+        mock_exit.assert_not_called()
+
+
 # ── run_detached: detached_jobs init (line 319-321) ──
 
 class TestRunDetachedJobsInit:
