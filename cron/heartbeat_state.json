@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-02T07:16:34.416779+00:00",
+  "last_run": "2026-05-02T07:46:53.758084+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -456,7 +456,7 @@
     "apr30_1121_semya_media": "2026-04-30T08:25:23.006094+00:00",
     "apr30_1121_cashback_task_created": "2026-04-30T08:25:23.006096+00:00",
     "apr30_1121_eldil_isbn_task_created": "2026-04-30T08:25:23.006097+00:00",
-    "whatsapp_семья_2026-04-30_plane": "2026-04-30T11:49:19.752765+00:00",
+    "whatsapp_\u0441\u0435\u043c\u044c\u044f_2026-04-30_plane": "2026-04-30T11:49:19.752765+00:00",
     "dominik_diak_glove_lead_apr30": "2026-04-30T12:20:19.011408+00:00",
     "dominik_diak_xai_busy_apr30": "2026-04-30T12:20:19.011408+00:00",
     "aitech_re_may1_cal_event": "2026-04-30T14:50:38.717637+00:00",
@@ -526,22 +526,22 @@
       ]
     },
     "pufit_japan_apr24_may13": {
-      "title": "Пуфит в Японии",
+      "title": "\u041f\u0443\u0444\u0438\u0442 \u0432 \u042f\u043f\u043e\u043d\u0438\u0438",
       "start": "2026-04-24",
       "attendees": []
     },
     "egor_birthday_apr25": {
-      "title": "Др Егора Стригалева",
+      "title": "\u0414\u0440 \u0415\u0433\u043e\u0440\u0430 \u0421\u0442\u0440\u0438\u0433\u0430\u043b\u0435\u0432\u0430",
       "start": "2026-04-25",
       "attendees": []
     },
     "flyer_payment_apr25": {
-      "title": "Flyer оплата",
+      "title": "Flyer \u043e\u043f\u043b\u0430\u0442\u0430",
       "start": "2026-04-25",
       "attendees": []
     },
     "lev_sasha_vadim_apr25_2230": {
-      "title": "Лев, Саша, Вадим",
+      "title": "\u041b\u0435\u0432, \u0421\u0430\u0448\u0430, \u0412\u0430\u0434\u0438\u043c",
       "start": "2026-04-25T22:30",
       "attendees": []
     },
@@ -562,12 +562,12 @@
       ]
     },
     "bratsky_sync_may2": {
-      "title": "Братский синк",
+      "title": "\u0411\u0440\u0430\u0442\u0441\u043a\u0438\u0439 \u0441\u0438\u043d\u043a",
       "start": "2026-05-02T18:00:00",
       "attendees": []
     },
     "nicegram_may10_count": {
-      "title": "Nicegram подсчёт предыдущего месяца",
+      "title": "Nicegram \u043f\u043e\u0434\u0441\u0447\u0451\u0442 \u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0435\u0433\u043e \u043c\u0435\u0441\u044f\u0446\u0430",
       "start": "2026-05-10",
       "attendees": [
         "vox-lab.com x4"
@@ -658,7 +658,7 @@
       ]
     },
     "ivan_kalashnik_birthday_may12": {
-      "title": "День рождения Ивана Калашника",
+      "title": "\u0414\u0435\u043d\u044c \u0440\u043e\u0436\u0434\u0435\u043d\u0438\u044f \u0418\u0432\u0430\u043d\u0430 \u041a\u0430\u043b\u0430\u0448\u043d\u0438\u043a\u0430",
       "start": "2026-05-12",
       "attendees": []
     },
@@ -678,7 +678,7 @@
       "location": "1524 Fell St, San Francisco, CA 94117"
     },
     "ilya_vadims_may8_1030": {
-      "title": "Илья <> Вадимс",
+      "title": "\u0418\u043b\u044c\u044f <> \u0412\u0430\u0434\u0438\u043c\u0441",
       "start": "2026-05-08T10:30",
       "attendees": [
         "casecnikov@gmail.com"
@@ -715,7 +715,7 @@
       ]
     },
     "aitech_re_may1_leadgen": {
-      "title": "Обсуждение результатов лидогенерации для девелопера",
+      "title": "\u041e\u0431\u0441\u0443\u0436\u0434\u0435\u043d\u0438\u0435 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u043b\u0438\u0434\u043e\u0433\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u0438 \u0434\u043b\u044f \u0434\u0435\u0432\u0435\u043b\u043e\u043f\u0435\u0440\u0430",
       "start": "2026-05-01T10:00",
       "attendees": [
         "vadims@vox-lab.com"
