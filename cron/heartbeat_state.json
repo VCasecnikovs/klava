@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-03T12:17:37.674767+00:00",
+  "last_run": "2026-05-03T18:55:51.407299+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -543,7 +543,19 @@
     "books_perfecto_gh_secrets_may3": "2026-05-03T09:30:34.000940+00:00",
     "gradium_overdue_flag_may3": "2026-05-03T09:30:34.000952+00:00",
     "pufit_vk_books_may3": "2026-05-03T12:17:37.674938+00:00",
-    "backblaze_billing_may3": "2026-05-03T12:17:37.674940+00:00"
+    "backblaze_billing_may3": "2026-05-03T12:17:37.674940+00:00",
+    "vox_dev_books_sample_s3_may3": "2026-05-03T18:55:51.407495+00:00",
+    "astrum_vitya_call_may3": "2026-05-03T18:55:51.407495+00:00",
+    "vitya_viktor_note_updated_may3": "2026-05-03T18:55:51.407495+00:00",
+    "eldil_deal_updated_s3_sample_may3": "2026-05-03T18:55:51.407495+00:00",
+    "astrum_tasks_created_may3": "2026-05-03T18:55:51.407495+00:00",
+    "vox_sci_doc_task_may3": "2026-05-03T18:55:51.407495+00:00",
+    "longevity_sf_hike_email_dedup_may3": "2026-05-03T18:55:51.407495+00:00",
+    "semya_travel_may3": "2026-05-03T18:55:51.407495+00:00",
+    "gdrive_germany_doc_may3": "2026-05-03T18:55:51.407495+00:00",
+    "github_sunnyCapt_azuresas_may3": "2026-05-03T18:55:51.407495+00:00",
+    "gtasks_pulse_results_noise_may3": "2026-05-03T18:55:51.407495+00:00",
+    "vitya_may11_cal_event_tracked": "2026-05-03T18:55:51.407495+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
@@ -774,6 +786,13 @@
       "title": "\u0411\u0440\u0430\u0442\u0441\u043a\u0438\u0439 \u0441\u0438\u043d\u043a",
       "start": "2026-05-16T08:00",
       "attendees": 2
+    },
+    "vitya_checkpoint_may11": {
+      "title": "\u0421\u0438\u043d\u043a, \u0447\u0442\u043e \u043c\u044b \u0440\u0435\u0430\u043b\u044c\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u043b\u0438",
+      "start": "2026-05-11T06:00",
+      "attendees": [
+        "casecnikov@gmail.com"
+      ]
     }
   }
 }
