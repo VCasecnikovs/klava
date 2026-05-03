@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-03T02:32:58.385016+00:00",
+  "last_run": "2026-05-03T09:30:34.000442+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -506,7 +506,7 @@
     "books_hindi_manifest_task_may2": "2026-05-02T02:27:48.805670+00:00",
     "synoptic_redlines_task_may2": "2026-05-02T02:27:48.805670+00:00",
     "amazon_books_lead_may2": "2026-05-02T02:27:48.805670+00:00",
-    "aayush_dinner_may2": "2026-05-02T02:27:48.805670+00:00",
+    "aayush_dinner_may2": "2026-05-03T09:30:34.000948+00:00",
     "morning_brief_may2": "2026-05-02T02:27:48.805670+00:00",
     "eldil_deal_updated_may2": "2026-05-02T02:27:48.805670+00:00",
     "dima_amazon_lead_scanner_may1": "2026-05-02T07:16:34.416779+00:00",
@@ -537,7 +537,11 @@
     "dima_tg_index_proposal_may03": "2026-05-03T05:00:00.000000+00:00",
     "moonlake_ai_research_dispatch_may03": "2026-05-03T05:00:00.000000+00:00",
     "gtasks_books_index_gemini_result_may03": "2026-05-03T05:00:00.000000+00:00",
-    "dayflow_moonlake_contract_review_may03": "2026-05-03T05:00:00.000000+00:00"
+    "dayflow_moonlake_contract_review_may03": "2026-05-03T05:00:00.000000+00:00",
+    "dataminr_followup_overdue_may3": "2026-05-03T09:30:34.000931+00:00",
+    "synoptic_gdrive_counter_may2": "2026-05-03T09:30:34.000936+00:00",
+    "books_perfecto_gh_secrets_may3": "2026-05-03T09:30:34.000940+00:00",
+    "gradium_overdue_flag_may3": "2026-05-03T09:30:34.000952+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
