@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-03T01:36:58.854503+00:00",
+  "last_run": "2026-05-03T05:00:00.000000+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -533,7 +533,11 @@
     "dima_amazon_sunday_push_may02": "2026-05-03T01:36:58.854681+00:00",
     "lev_diana_intro_may02": "2026-05-03T01:36:58.854681+00:00",
     "pufit_nml_piracy_may02": "2026-05-03T01:36:58.854681+00:00",
-    "voxdev_books_index_dispatch_may02": "2026-05-03T01:36:58.854681+00:00"
+    "voxdev_books_index_dispatch_may02": "2026-05-03T01:36:58.854681+00:00",
+    "dima_tg_index_proposal_may03": "2026-05-03T05:00:00.000000+00:00",
+    "moonlake_ai_research_dispatch_may03": "2026-05-03T05:00:00.000000+00:00",
+    "gtasks_books_index_gemini_result_may03": "2026-05-03T05:00:00.000000+00:00",
+    "dayflow_moonlake_contract_review_may03": "2026-05-03T05:00:00.000000+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
