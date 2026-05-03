@@ -1257,6 +1257,31 @@ class TestCheckJobsReload:
             mock_reload.assert_not_called()
 
 
+# ── _wait_for_api ────────────────────────────────────────────────────
+
+class TestWaitForApi:
+    """Regression: HTTP error response (e.g. 404 on root path) means the host
+    is up. The previous probe treated HTTPError as failure, which blocked the
+    deferred-job drain forever (xnews-sync, search-embed, task-consumer stuck
+    May 3 2026 because api.anthropic.com/ HEAD returns 404)."""
+
+    def test_http_error_counts_as_reachable(self, job_manager):
+        from urllib.error import HTTPError
+        with patch("urllib.request.urlopen", side_effect=HTTPError(
+            "https://api.anthropic.com/", 404, "Not Found", {}, None
+        )):
+            assert job_manager._wait_for_api(max_wait=10, interval=10) is True
+
+    def test_2xx_response_counts_as_reachable(self, job_manager):
+        with patch("urllib.request.urlopen", return_value=object()):
+            assert job_manager._wait_for_api(max_wait=10, interval=10) is True
+
+    def test_connection_refused_is_unreachable(self, job_manager):
+        with patch("urllib.request.urlopen", side_effect=ConnectionRefusedError()), \
+             patch("time.sleep"):
+            assert job_manager._wait_for_api(max_wait=10, interval=10) is False
+
+
 # ── _monitor_connectivity ────────────────────────────────────────────
 
 class TestMonitorConnectivity:

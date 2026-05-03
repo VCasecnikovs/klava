@@ -568,14 +568,23 @@ class JobManager:
 
         After long sleep, Claude API gets ConnectionRefused for ~30-60s.
         This prevents wasting catch-up attempts on a cold API.
+
+        Any HTTP response (including 404 on the root path) means the host is
+        up. Only connection-level failures (refused/timeout/DNS) count as not
+        reachable. Regression: the previous probe treated 404 as failure and
+        blocked the deferred-job drain forever (xnews-sync stuck May 3 2026).
         """
         import urllib.request
+        from urllib.error import HTTPError
         api_url = "https://api.anthropic.com/"
         for attempt in range(max_wait // interval):
             try:
                 req = urllib.request.Request(api_url, method="HEAD")
                 urllib.request.urlopen(req, timeout=5)
                 self.logger.info(f"API warmup: reachable after {attempt * interval}s")
+                return True
+            except HTTPError:
+                self.logger.info(f"API warmup: reachable after {attempt * interval}s (HTTP error response)")
                 return True
             except Exception:
                 pass
