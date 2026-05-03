@@ -1072,6 +1072,30 @@ class JobManager:
         # Circuit breaker: if the last N runs of this job all failed, don't
         # launch another session - cost stays bounded until someone looks.
         job_id = job.get("id", "unknown")
+        # Half-open probe: after reset_after_minutes (default 60) the breaker
+        # silently clears itself and allows one probe attempt.  If the probe
+        # fails the breaker re-opens with a fresh opened_at timestamp.
+        _breaker_info = self.state.get("breakers_open", {}).get(job_id)
+        if _breaker_info:
+            _reset_after = (
+                int(job.get("circuit_breaker", {}).get("reset_after_minutes", 60))
+                if isinstance(job.get("circuit_breaker"), dict) else 60
+            )
+            try:
+                _opened_at = datetime.fromisoformat(_breaker_info["opened_at"])
+                if _opened_at.tzinfo is None:
+                    _opened_at = _opened_at.replace(tzinfo=timezone.utc)
+                _elapsed = (datetime.now(timezone.utc) - _opened_at).total_seconds() / 60
+                if _elapsed >= _reset_after:
+                    self.logger.info(
+                        f"Job {job_id}: circuit breaker half-open probe "
+                        f"(open {_elapsed:.0f}m >= {_reset_after}m reset_after)"
+                    )
+                    _breakers = self.state.setdefault("breakers_open", {})
+                    _breakers.pop(job_id, None)
+                    self._save_state()
+            except (KeyError, ValueError, TypeError):
+                pass
         breaker_threshold = int(job.get("circuit_breaker", {}).get("threshold", 3)) if isinstance(job.get("circuit_breaker"), dict) else 3
         failures = self._consecutive_failures(job_id, limit=breaker_threshold)
         if failures >= breaker_threshold:
