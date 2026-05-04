@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-04T05:23:04.696388+00:00",
+  "last_run": "2026-05-04T05:59:42.361055+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -571,7 +571,16 @@
     "shawn_dinner_result_may4": "2026-05-04T03:54:06.780580+00:00",
     "amazon_books_delivered_may4": "2026-05-04T04:54:12.694634+00:00",
     "amazon_sla_terms_may4": "2026-05-04T04:54:12.694634+00:00",
-    "dayflow_chess_may4": "2026-05-04T04:54:12.694634+00:00"
+    "dayflow_chess_may4": "2026-05-04T04:54:12.694634+00:00",
+    "hb_may04_shawn_dinner_cancel": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_ilja_meeting_may8": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_karl_azure_kube": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_dima_csv_handoff": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_mahir_reply": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_dima_abramov_kb": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_aayush_dinner_kb": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_dominik_glove_kb": "2026-05-04T05:59:42.361055+00:00",
+    "hb_may04_ilja_meeting_kb": "2026-05-04T05:59:42.361055+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {

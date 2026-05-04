@@ -80,6 +80,12 @@ codex mcp list    # list configured MCP servers
 codex mcp add <name> -- <command>
 ```
 
+**Wired into gateway (May 2026):** `_build_mcp_servers()` in `gateway/webhook-server.py` now exposes `codex` to every dashboard Chat session. Two tools become available:
+- `mcp__codex__codex` - start a new Codex session with a prompt
+- `mcp__codex__codex-reply` - continue a Codex thread by thread_id
+
+Use this to delegate code review, terminal-heavy ops, or token-efficient subtasks to GPT-5 Codex without leaving the Claude session. Prefer this over shelling out via Bash for anything non-trivial - the MCP path streams events back into the Claude UI properly.
+
 ## Sandbox Modes
 
 | Mode | Permissions |

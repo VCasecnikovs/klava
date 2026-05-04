@@ -5,7 +5,7 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 140
+- Items added (30d): 166
 - Items fixed (30d): 85
 - Avg days open: 1
 - Last run: 2026-05-02
@@ -366,6 +366,195 @@
 - **seen:** 1
 - **description:** task-consumer ran 8533s on May 2 (03:16-05:38 UTC) despite both TASK_TIMEOUT=3600 and cron-scheduler bash timeout=3600. Root cause: ClaudeExecutor.run() (blocking mode, used by consumer.py) has no wall-clock kill watchdog. run_detached() has _hard_kill_watchdog but run() does not. asyncio.timeout(N) can fail on macOS when receive_messages() blocks in C-level code. Second occurrence (Apr 27: 6725s was previous).
 - **resolved:** 2026-05-02 Added wall-clock kill watchdog to run(): soft deadline (timeout+30s) returns timeout error dict + kills SDK children; hard deadline (timeout+60s) in watchdog thread os._exit(1)s. Same pattern run_detached() already uses. [407bb11]
+
+### [2026-05-03] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-03] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-03] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-03] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-03] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-03] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-03] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-03] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-03] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-03] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-03] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-03] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-03] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-03] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-03] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-03] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-03] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-03] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-03] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-03] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-03] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-03] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-03] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-03] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-03] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-03] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
 
 ---
 

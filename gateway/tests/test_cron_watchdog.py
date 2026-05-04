@@ -529,23 +529,13 @@ class TestMain:
     @patch.object(cron_watchdog, "check_service")
     def test_service_down_restart_succeeds(self, mock_check, mock_restart, mock_alert, mock_sleep):
         """One service down, restart succeeds, recovery alert sent."""
-        # First round: cron-scheduler fails, others pass
-        def check_side_effect(label, config):
-            if label == "com.local.cron-scheduler":
-                return (False, "Dead (exit code 1)")
-            return (True, "Running")
+        # Use the actual first service label (dynamic prefix, e.g. com.vadims.cron-scheduler)
+        cron_label = next(iter(cron_watchdog.SERVICES))
 
-        mock_check.side_effect = check_side_effect
-        mock_restart.return_value = True
-
-        # After restart, check_service is called again for verification.
-        # We need to handle the verification call too.
-        # The main function calls check_service in the loop, then again after restart.
-        # So we need to change side_effect after the initial loop finishes.
         call_count = [0]
         def check_side_effect_with_recovery(label, config):
             call_count[0] += 1
-            if label == "com.local.cron-scheduler":
+            if label == cron_label:
                 # First call (in loop) = fail, second call (after restart) = pass
                 if call_count[0] <= len(cron_watchdog.SERVICES):
                     return (False, "Dead (exit code 1)")
@@ -553,10 +543,11 @@ class TestMain:
             return (True, "Running")
 
         mock_check.side_effect = check_side_effect_with_recovery
+        mock_restart.return_value = True
 
         cron_watchdog.main()
 
-        mock_restart.assert_called_once_with("com.local.cron-scheduler")
+        mock_restart.assert_called_once_with(cron_label)
         # Should send: down alert + recovery alert
         assert mock_alert.call_count == 2
         # First alert is the down alert
@@ -570,10 +561,11 @@ class TestMain:
     @patch.object(cron_watchdog, "check_service")
     def test_service_down_restart_fails_still_down(self, mock_check, mock_restart, mock_alert, mock_sleep):
         """Service down, restart succeeds but still unhealthy - critical alert."""
+        cron_label = next(iter(cron_watchdog.SERVICES))
         call_count = [0]
         def check_side_effect(label, config):
             call_count[0] += 1
-            if label == "com.local.cron-scheduler":
+            if label == cron_label:
                 return (False, "Dead (exit code 1)")
             return (True, "Running")
 
@@ -591,10 +583,11 @@ class TestMain:
     @patch.object(cron_watchdog, "check_service")
     def test_restart_command_fails(self, mock_check, mock_restart, mock_alert):
         """Restart command itself fails - critical alert."""
+        cron_label = next(iter(cron_watchdog.SERVICES))
         call_count = [0]
         def check_side_effect(label, config):
             call_count[0] += 1
-            if label == "com.local.cron-scheduler":
+            if label == cron_label:
                 return (False, "Dead (exit code 1)")
             return (True, "Running")
 
@@ -645,18 +638,21 @@ class TestServicesConfig:
             assert "name" in config, f"{label} missing 'name'"
 
     def test_expected_services_present(self):
-        """Expected services are defined."""
-        assert "com.local.cron-scheduler" in cron_watchdog.SERVICES
-        assert "com.local.webhook-server" in cron_watchdog.SERVICES
-        assert "com.local.tg-gateway" in cron_watchdog.SERVICES
+        """Expected services are defined (prefix is dynamic per config)."""
+        labels = list(cron_watchdog.SERVICES.keys())
+        assert any("cron-scheduler" in lbl for lbl in labels)
+        assert any("webhook-server" in lbl for lbl in labels)
+        assert any("tg-gateway" in lbl for lbl in labels)
 
     def test_cron_scheduler_has_healthcheck(self):
         """Cron scheduler has a healthcheck file config."""
-        config = cron_watchdog.SERVICES["com.local.cron-scheduler"]
+        cron_label = next(lbl for lbl in cron_watchdog.SERVICES if "cron-scheduler" in lbl)
+        config = cron_watchdog.SERVICES[cron_label]
         assert "healthcheck_file" in config
         assert "max_stale_minutes" in config
 
     def test_webhook_server_has_health_url(self):
         """Webhook server has a health URL config."""
-        config = cron_watchdog.SERVICES["com.local.webhook-server"]
+        webhook_label = next(lbl for lbl in cron_watchdog.SERVICES if "webhook-server" in lbl)
+        config = cron_watchdog.SERVICES[webhook_label]
         assert "health_url" in config

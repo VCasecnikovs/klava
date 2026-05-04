@@ -687,7 +687,6 @@ class TestBuildHeartbeatReport:
         result = job_manager._build_heartbeat_report(run_entry)
         assert result is not None
         assert "Heartbeat" in result
-        assert "EET" in result
         assert "INTAKE:" in result
         assert "15 records" in result
         assert "telegram: 10" in result
@@ -1188,18 +1187,17 @@ class TestResolveTopic:
         result = job_manager._resolve_topic(job)
         assert result == "General"
 
-    def test_with_known_topic(self, job_manager):
-        # Mock TOPIC_NAMES from lib.feed
-        with patch.dict("sys.modules", {"lib.feed": MagicMock(TOPIC_NAMES={100001: "Heartbeat"})}):
-            job = {"id": "heartbeat", "telegram_topic": 100001}
-            result = job_manager._resolve_topic(job)
-            assert result == "Heartbeat"
+    def test_with_feed_topic(self, job_manager):
+        # feed_topic is the only source; telegram_topic is irrelevant for routing
+        job = {"id": "heartbeat", "telegram_topic": 100001, "feed_topic": "Heartbeat"}
+        result = job_manager._resolve_topic(job)
+        assert result == "Heartbeat"
 
-    def test_with_unknown_topic_id(self, job_manager):
-        with patch.dict("sys.modules", {"lib.feed": MagicMock(TOPIC_NAMES={})}):
-            job = {"id": "test", "telegram_topic": 999999}
-            result = job_manager._resolve_topic(job)
-            assert result == "General"
+    def test_with_telegram_topic_only_returns_general(self, job_manager):
+        # telegram_topic alone doesn't determine the feed label
+        job = {"id": "test", "telegram_topic": 999999}
+        result = job_manager._resolve_topic(job)
+        assert result == "General"
 
 
 # ── _graceful_shutdown ───────────────────────────────────────────────

@@ -163,7 +163,9 @@ class TestApiDashboard:
     def test_success(self, mock_collect, client):
         resp = client.get("/api/dashboard")
         assert resp.status_code == 200
-        assert resp.get_json() == {"sessions": []}
+        data = resp.get_json()
+        assert data["sessions"] == []
+        assert "assistant_name" in data
 
     @patch("routes.dashboard_api.collect_dashboard_data", side_effect=Exception("DB error"))
     def test_error(self, mock_collect, client):
@@ -272,16 +274,17 @@ class TestApiViewsServe:
         assert resp.status_code in (400, 404)  # Flask may normalize path
 
     def test_file_not_found(self, client, tmp_path, monkeypatch):
-        monkeypatch.setattr("routes.dashboard_api.Path.home", lambda: tmp_path)
-        (tmp_path / "Documents" / "MyBrain" / "Views").mkdir(parents=True)
+        views_dir = tmp_path / "Views"
+        views_dir.mkdir(parents=True)
+        monkeypatch.setattr("routes.dashboard_api._cfg.views_dir", lambda: views_dir)
         resp = client.get("/api/views/serve/nonexistent.html")
         assert resp.status_code == 404
 
     def test_serves_file(self, client, tmp_path, monkeypatch):
-        views_dir = tmp_path / "Documents" / "MyBrain" / "Views"
+        views_dir = tmp_path / "Views"
         views_dir.mkdir(parents=True)
         (views_dir / "test.html").write_text("<h1>Test</h1>")
-        monkeypatch.setattr("routes.dashboard_api.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("routes.dashboard_api._cfg.views_dir", lambda: views_dir)
         resp = client.get("/api/views/serve/test.html")
         assert resp.status_code == 200
         assert "<h1>Test</h1>" in resp.data.decode()
@@ -370,17 +373,17 @@ class TestApiSources:
 
 class TestApiPlans:
     def test_no_plans_dir(self, client, tmp_path, monkeypatch):
-        monkeypatch.setattr("routes.dashboard_api.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("routes.dashboard_api._cfg.plans_dir", lambda: tmp_path / "plans")
         resp = client.get("/api/plans")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["plans"] == []
 
     def test_plans_with_files(self, client, tmp_path, monkeypatch):
-        monkeypatch.setattr("routes.dashboard_api.Path.home", lambda: tmp_path)
-        plans_dir = tmp_path / "Documents" / "GitHub" / "claude" / ".claude" / "plans"
+        plans_dir = tmp_path / "plans"
         plans_dir.mkdir(parents=True)
         (plans_dir / "my-plan.md").write_text("# Plan\nDo stuff")
+        monkeypatch.setattr("routes.dashboard_api._cfg.plans_dir", lambda: plans_dir)
         resp = client.get("/api/plans")
         assert resp.status_code == 200
         data = resp.get_json()

@@ -219,6 +219,12 @@ def _build_mcp_servers(claude_cli_path: str) -> dict:
                 "GRAFANA_SERVICE_ACCOUNT_TOKEN": grafana["token"],
             },
         }
+    codex_bin = "/opt/homebrew/bin/codex"
+    if os.path.exists(codex_bin):
+        servers["codex"] = {
+            "command": codex_bin,
+            "args": ["mcp-server"],
+        }
     return servers
 
 

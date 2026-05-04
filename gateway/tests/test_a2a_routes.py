@@ -820,8 +820,7 @@ class TestTriggerRoute:
 
         with patch("routes.a2a._check_auth", return_value=None), \
              patch("routes.a2a._check_rate_limit", return_value=None), \
-             patch("lib.feed.send_feed") as mock_feed, \
-             patch("lib.feed.TOPIC_NAMES", {100005: "Mentor"}):
+             patch("lib.feed.send_feed") as mock_feed:
             with app.test_client() as client:
                 resp = client.post("/trigger/reflection")
                 assert resp.status_code == 200
@@ -931,14 +930,16 @@ class TestCheckRateLimit:
 
     def test_rate_limit_blocks_request(self, setup):
         app = setup
-        mock_ws = types.ModuleType("webhook_server")
         from collections import defaultdict
-        mock_ws.rate_limit_store = defaultdict(list)
-        mock_ws.MAX_REQUESTS_PER_HOUR = 2
+        import routes.a2a as a2a_mod
 
+        # Reset the module-level store and mock cfg to use limit=2
+        fresh_store = defaultdict(list)
         with patch("routes.a2a._check_auth", return_value=None), \
-             patch.dict("sys.modules", {"webhook_server": mock_ws}), \
+             patch.object(a2a_mod, "_rate_limit_store", fresh_store), \
+             patch("routes.a2a._cfg") as mock_cfg, \
              patch("lib.status_collector.collect_status", return_value={"ok": True}):
+            mock_cfg.load.return_value = {"webhook": {"rate_limit_per_hour": 2}}
             with app.test_client() as client:
                 # First 2 requests should be fine
                 resp1 = client.get("/status")
