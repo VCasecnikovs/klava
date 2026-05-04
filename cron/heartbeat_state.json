@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-04T15:51:18.555920+00:00",
+  "last_run": "2026-05-04T18:06:03.004611+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -590,7 +590,11 @@
     "lev_may4_diana_bio": "2026-05-04T07:52:55.150920",
     "signal_dima_abramov_20260504_excel": "2026-05-04T14:49:41.276143",
     "dima_books_count_discrepancy_may4": "2026-05-04T15:51:18.556091+00:00",
-    "vox_dev_dedup_discussion_may4": "2026-05-04T15:51:18.556094+00:00"
+    "vox_dev_dedup_discussion_may4": "2026-05-04T15:51:18.556094+00:00",
+    "dima_amazon_isbn_concern_may4": "2026-05-04T18:06:03.004611+00:00",
+    "vox_dev_count_reconciliation_may4": "2026-05-04T18:06:03.004611+00:00",
+    "amazon_books_deal_updated_may4_evening": "2026-05-04T18:06:03.004611+00:00",
+    "gdrive_sample_upload_may4": "2026-05-04T18:06:03.004611+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
