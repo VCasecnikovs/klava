@@ -33,8 +33,10 @@ from tasks.queue import (
 from lib.claude_executor import ClaudeExecutor
 from lib.feed import send_feed
 from lib import subagent_state
+from lib import session_log
 
 from tasks import idle_research
+from tasks.scope import build_scope_context
 
 logging.basicConfig(
     level=logging.INFO,
@@ -157,13 +159,24 @@ def _load_executor_doctrine() -> str:
 def build_task_prompt(task: Task) -> str:
     """Build the Claude prompt for executing a task.
 
-    Format: doctrine (from executor SKILL.md) + concrete task payload.
-    The doctrine lives in a skill file so it's hot-reloadable and
-    co-edited with the rest of the skill library.
+    Format: optional scope context (when task.scope is set) + doctrine
+    (from executor SKILL.md) + concrete task payload.
+
+    Scope context comes FIRST because it's the world-model the doctrine
+    operates against. Cheap when scope is unset (returns "").
     """
     doctrine = _load_executor_doctrine()
+    scope_block = ""
+    if task.scope:
+        try:
+            scope_block = build_scope_context(task.scope)
+        except Exception as e:
+            log.warning(f"build_scope_context failed for {task.scope!r}: {e}")
+            scope_block = ""
 
     payload = [f"**Task:** {task.title}", f"**Priority:** {task.priority}"]
+    if task.scope:
+        payload.append(f"**Scope:** {task.scope}")
     if task.parent_id:
         payload.append("**Note:** subtask of a larger task.")
     if task.body:
@@ -171,12 +184,14 @@ def build_task_prompt(task: Task) -> str:
         payload.append("**Details:**")
         payload.append(task.body)
 
-    return (
-        doctrine.rstrip()
-        + "\n\n---\n\n## This task\n\n"
-        + "\n".join(payload)
-        + "\n"
-    )
+    parts = []
+    if scope_block:
+        parts.append(scope_block.rstrip())
+        parts.append("---")
+    parts.append(doctrine.rstrip())
+    parts.append("---")
+    parts.append("## This task\n\n" + "\n".join(payload))
+    return "\n\n".join(parts) + "\n"
 
 
 def execute_task(task: Task) -> dict:
@@ -215,6 +230,31 @@ def mark_running(task: Task) -> None:
     update_task_notes(task.id, task.to_notes())
 
 
+def _log_session(task: Task, result: dict, status: str) -> None:
+    """Append a session-log entry for this finished task. Best-effort."""
+    try:
+        sid = result.get("session_id") if isinstance(result, dict) else None
+        duration = result.get("duration") if isinstance(result, dict) else None
+        artifacts = [f"gtask:{task.id}"]
+        if sid:
+            artifacts.append(f"sid:{sid}")
+        summary = f"{status}: {task.title}"
+        if status == "failed":
+            err = (result.get("error") or "").strip().splitlines()
+            if err:
+                summary = f"{summary} — {err[0][:160]}"
+        session_log.append_session(
+            sid=sid,
+            scope=task.scope,
+            trigger="consumer",
+            summary=summary,
+            artifacts=artifacts,
+            duration_s=duration,
+        )
+    except Exception as e:
+        log.debug(f"session_log write failed for {task.id}: {e}")
+
+
 def mark_done(task: Task, result: dict) -> None:
     """Convert the finished task into a [RESULT] or [PROPOSAL] card in place.
 
@@ -242,6 +282,7 @@ def mark_done(task: Task, result: dict) -> None:
         task.session_id = session_id
         update_task_notes(task.id, task.to_notes())
         complete_task(task.id)
+        _log_session(task, result, "done-empty")
         return
 
     # GTasks notes cap around 8 KB. Give the card most of that budget.
@@ -267,6 +308,7 @@ def mark_done(task: Task, result: dict) -> None:
                 mode_tags=mode_tags or None,
                 session_id=session_id,
             )
+        _log_session(task, result, "done")
         return
     except Exception as e:
         log.warning(
@@ -295,6 +337,7 @@ def mark_done(task: Task, result: dict) -> None:
         )
     except Exception as e:
         log.warning(f"Failed to emit [RESULT] card for {task.id}: {e}")
+    _log_session(task, result, "done")
 
 
 def mark_failed(task: Task, error: str) -> None:
@@ -306,6 +349,7 @@ def mark_failed(task: Task, error: str) -> None:
         update_task_notes(task.id, task.to_notes())
     except Exception as e:
         log.warning(f"Failed to persist mark_failed for {task.id} (will retry next run): {e}")
+    _log_session(task, {"error": error}, "failed")
 
 
 def _idle_branch(tasks: list) -> dict:

@@ -193,6 +193,7 @@ class Task:
     resume_session_id: Optional[str] = None  # session to resume when executing (continue-in-session)
     continue_mode: Optional[str] = None    # execute | research-more | follow-up — continuation intent
     digest: Optional[bool] = None          # true for digest-class result cards (Pulse, Reflection, Klava self-reports)
+    scope: Optional[str] = None            # Obsidian folder path (e.g. "Astrum/" or "Vox Lab/Deals/Apple/")
 
     @classmethod
     def from_gtask(cls, gtask: dict) -> "Task":
@@ -246,6 +247,7 @@ class Task:
             resume_session_id=frontmatter.get("resume_session_id") or None,
             continue_mode=frontmatter.get("continue_mode") or None,
             digest=(frontmatter.get("digest", "").strip().lower() == "true") or None,
+            scope=frontmatter.get("scope") or None,
         )
 
     def to_notes(self) -> str:
@@ -285,6 +287,8 @@ class Task:
             fields["continue_mode"] = self.continue_mode
         if self.digest:
             fields["digest"] = "true"
+        if self.scope:
+            fields["scope"] = self.scope
         if self.session_id:
             fields["session_id"] = self.session_id
         if self.created:
@@ -497,6 +501,7 @@ def create_task(
     resume_session_id: Optional[str] = None,
     continue_mode: Optional[str] = None,
     digest: bool = False,
+    scope: Optional[str] = None,
     session_id: Optional[str] = None,
     status: str = "pending",
     dedup: bool = True,
@@ -623,6 +628,16 @@ def create_task(
         fields["continue_mode"] = continue_mode
     if digest:
         fields["digest"] = "true"
+    if scope:
+        from tasks.scope import validate_scope as _validate_scope
+        normalized = _validate_scope(scope)
+        if normalized:
+            fields["scope"] = normalized
+        else:
+            print(
+                f"[tasks.queue] create_task: dropping invalid scope {scope!r}",
+                file=sys.stderr,
+            )
     if session_id:
         fields["session_id"] = session_id
 
@@ -669,6 +684,7 @@ def create_proposal(
     criticality: Optional[int] = None,
     list_id: str = None,
     parent_task_id: Optional[str] = None,
+    scope: Optional[str] = None,
 ) -> str:
     """Create a `[PROPOSAL]` card awaiting the user's approval.
 
@@ -718,6 +734,7 @@ def create_proposal(
         status="pending",
         list_id=list_id,
         result_of=parent_task_id,
+        scope=scope,
     )
 
 
@@ -734,6 +751,7 @@ def create_result(
     list_id: str = None,
     dedup_topic: bool = True,
     digest: bool = False,
+    scope: Optional[str] = None,
 ) -> str:
     """Create a `[RESULT]` card reporting on finished work.
 
@@ -848,6 +866,7 @@ def create_result(
         session_id=session_id,
         status="pending",
         digest=digest,
+        scope=scope,
         list_id=list_id,
     )
 
@@ -1523,6 +1542,7 @@ def create_continuation(
         parent_id=None,
         resume_session_id=resume_sid,
         continue_mode=mode,
+        scope=parent.scope,
         list_id=lid,
     )
     if new_type == "proposal":
