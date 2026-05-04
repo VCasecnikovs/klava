@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-03T19:55:34.409017",
+  "last_run": "2026-05-04T03:23:35.570854+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -563,7 +563,10 @@
     "books_flight_alert_may4": "2026-05-03T19:55:34.409017",
     "astrum_coinbase_ilja_may4": "2026-05-03T19:55:34.409017",
     "pumpfun_onepager_may3": "2026-05-03T19:55:34.409017",
-    "dayflow_ebook_synoptic_may3": "2026-05-03T19:55:34.409017"
+    "dayflow_ebook_synoptic_may3": "2026-05-03T19:55:34.409017",
+    "shawn_dinner_may4_confirmed": "2026-05-04T03:23:35.570854+00:00",
+    "shawn_sfo_arrival_may4": "2026-05-04T03:23:35.570854+00:00",
+    "cal_shawn_rt_rotisserie_may4": "2026-05-04T03:23:35.570854+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
@@ -809,6 +812,14 @@
     "du0h4v1dg5vpnq4rlvh2ctes8g": {
       "title": "Flight to Riga (KL 3091)",
       "start": "2026-05-05T01:00:00-07:00"
+    },
+    "shawn_vadim_may4_rotisserie": {
+      "title": "Shawn x Vadims @ RT Rotisserie",
+      "start": "2026-05-04T18:00",
+      "attendees": [
+        "casecnikov@gmail.com",
+        "shawn@eldil.ai"
+      ]
     }
   }
 }
