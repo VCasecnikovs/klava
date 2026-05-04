@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-04T03:23:35.570854+00:00",
+  "last_run": "2026-05-04T03:54:06.780580+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -566,7 +566,9 @@
     "dayflow_ebook_synoptic_may3": "2026-05-03T19:55:34.409017",
     "shawn_dinner_may4_confirmed": "2026-05-04T03:23:35.570854+00:00",
     "shawn_sfo_arrival_may4": "2026-05-04T03:23:35.570854+00:00",
-    "cal_shawn_rt_rotisserie_may4": "2026-05-04T03:23:35.570854+00:00"
+    "cal_shawn_rt_rotisserie_may4": "2026-05-04T03:23:35.570854+00:00",
+    "klm_flight_checkin_may4": "2026-05-04T03:54:06.780580+00:00",
+    "shawn_dinner_result_may4": "2026-05-04T03:54:06.780580+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
