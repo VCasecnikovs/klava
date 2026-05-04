@@ -21,6 +21,11 @@ from typing import Optional, List, Dict
 
 log = logging.getLogger(__name__)
 
+# Scope map config (cron/scopes.yaml).
+_SCOPE_MAP_PATH = Path(__file__).resolve().parent.parent / "cron" / "scopes.yaml"
+_SCOPE_MAP_CACHE: Dict[str, object] = {"loaded_at": 0.0, "data": None}
+_SCOPE_MAP_TTL = 60.0  # seconds
+
 # Per-section caps (rough char counts; ~4 chars per token).
 _NOTES_LIMIT = 5
 _RESULTS_LIMIT = 5
@@ -81,6 +86,119 @@ def scope_chain(s: Optional[str]) -> List[str]:
         chain.append(cur)
         cur = parent_scope(cur)
     return chain
+
+
+def load_scope_map() -> Dict[str, object]:
+    """Read `cron/scopes.yaml`. Cached for `_SCOPE_MAP_TTL` seconds.
+
+    Returns dict with keys `tg_topics`, `entity_to_scope`, `known_scopes`.
+    Empty dict on missing file / parse error / missing PyYAML.
+    """
+    import time
+    now = time.time()
+    if _SCOPE_MAP_CACHE.get("data") is not None and (
+        now - float(_SCOPE_MAP_CACHE.get("loaded_at", 0)) < _SCOPE_MAP_TTL
+    ):
+        return _SCOPE_MAP_CACHE["data"]  # type: ignore
+
+    data: Dict[str, object] = {"tg_topics": {}, "entity_to_scope": {}, "known_scopes": []}
+    try:
+        if _SCOPE_MAP_PATH.exists():
+            import yaml  # type: ignore
+            with _SCOPE_MAP_PATH.open("r", encoding="utf-8") as f:
+                parsed = yaml.safe_load(f) or {}
+            if isinstance(parsed, dict):
+                data["tg_topics"] = parsed.get("tg_topics") or {}
+                data["entity_to_scope"] = parsed.get("entity_to_scope") or {}
+                data["known_scopes"] = parsed.get("known_scopes") or []
+    except Exception as e:
+        log.debug(f"load_scope_map failed: {e}")
+
+    _SCOPE_MAP_CACHE["data"] = data
+    _SCOPE_MAP_CACHE["loaded_at"] = now
+    return data
+
+
+def list_known_scopes() -> List[str]:
+    """Return sorted list of scopes worth showing in a picker.
+
+    Sources, deduped:
+      1. `known_scopes` from `cron/scopes.yaml`.
+      2. Every folder under the vault containing a `_project.md` hub note.
+      3. Top-level vault folders (depth 1) excluding `.obsidian`, `Templates`, `Inbox`.
+      4. `Vox Lab/Deals/*/` (deal sub-folders are first-class scopes).
+    """
+    out: set[str] = set()
+    cfg = load_scope_map()
+    for s in cfg.get("known_scopes") or []:
+        v = validate_scope(str(s))
+        if v:
+            out.add(v)
+
+    vault = vault_root()
+    if vault.exists() and vault.is_dir():
+        # _project.md hub notes anywhere
+        for hub in vault.rglob("_project.md"):
+            rel = hub.parent.relative_to(vault).as_posix()
+            v = validate_scope(rel)
+            if v:
+                out.add(v)
+        # Top-level dirs
+        EXCLUDE_TOP = {".obsidian", ".trash", ".smart-env", "Templates", "Inbox", "Views", "Attachments"}
+        for entry in vault.iterdir():
+            if entry.is_dir() and entry.name not in EXCLUDE_TOP and not entry.name.startswith("."):
+                v = validate_scope(entry.name + "/")
+                if v:
+                    out.add(v)
+        # Vox Lab/Deals/* — every deal is a scope
+        deals = vault / "Vox Lab" / "Deals"
+        if deals.exists() and deals.is_dir():
+            for entry in deals.iterdir():
+                if entry.is_dir() and not entry.name.startswith("_") and not entry.name.startswith("."):
+                    v = validate_scope(f"Vox Lab/Deals/{entry.name}/")
+                    if v:
+                        out.add(v)
+
+    return sorted(out)
+
+
+def infer_scope(text: str, default: Optional[str] = None) -> Optional[str]:
+    """Guess the scope for a free-form task title+body.
+
+    Strategy:
+      1. Match against `entity_to_scope` (case-insensitive substring).
+         Longest entity wins so "Vox Harbor" beats "Vox".
+      2. Match against deal folder names (last path segment of every
+         known scope). Same longest-wins rule.
+      3. Return `default` (or None).
+
+    No LLM, no fuzzy matching — keep it deterministic and cheap. The
+    user can always override via the picker; misroutes are easy to fix.
+    """
+    if not text:
+        return default
+    lo = text.lower()
+    cfg = load_scope_map()
+
+    candidates: List[tuple[str, str]] = []  # (token, scope)
+    for token, scope in (cfg.get("entity_to_scope") or {}).items():
+        if not token or not scope:
+            continue
+        if str(token).lower() in lo:
+            v = validate_scope(str(scope))
+            if v:
+                candidates.append((str(token), v))
+
+    for scope in list_known_scopes():
+        last = scope.rstrip("/").rsplit("/", 1)[-1]
+        if len(last) >= 3 and last.lower() in lo:
+            candidates.append((last, scope))
+
+    if not candidates:
+        return default
+
+    candidates.sort(key=lambda kv: -len(kv[0]))
+    return candidates[0][1]
 
 
 def matches_scope(task_scope: Optional[str], target: str) -> bool:

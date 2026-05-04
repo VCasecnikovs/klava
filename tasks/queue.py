@@ -638,6 +638,26 @@ def create_task(
                 f"[tasks.queue] create_task: dropping invalid scope {scope!r}",
                 file=sys.stderr,
             )
+    elif type != "result":
+        # Auto-infer fallback. Skipped for result cards (caller controls those)
+        # and for explicitly-set scopes (covered above). Tag-prefix tokens
+        # like [ACTION], [PROPOSAL] are stripped before matching to avoid
+        # noise.
+        try:
+            from tasks.scope import infer_scope as _infer_scope
+            search_text = f"{title} {body or notes or ''}"
+            search_text = re.sub(r"^\s*\[[A-Z][A-Z\s]*\]\s*", "", search_text)
+            inferred = _infer_scope(search_text)
+            if inferred:
+                fields["scope"] = inferred
+                print(
+                    f"[tasks.queue] create_task: auto-inferred scope={inferred!r} "
+                    f"for {title!r} (source={source!r})",
+                    file=sys.stderr,
+                )
+        except Exception as _e:
+            # Auto-infer is best-effort; never block task creation.
+            pass
     if session_id:
         fields["session_id"] = session_id
 

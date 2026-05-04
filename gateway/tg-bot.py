@@ -36,6 +36,7 @@ from lib.main_session import (
     save_main_session_id, get_main_topic_id
 )
 from lib.session_registry import register_session
+from tasks.scope import build_scope_context, load_scope_map
 from lib.spawn_agent_tool import (
     init_spawn_agent, parse_spawn_request, spawn_agent,
     format_spawn_result, get_spawn_tool_description
@@ -1337,6 +1338,20 @@ async def _handle_tasks_topic(update, context, user_id, message, chat_id, messag
         )
         return
 
+    # Scope routing: prepend the scope context block when this topic maps
+    # to one. Topic→scope map lives in cron/scopes.yaml, hot-reloadable.
+    scope_label = ""
+    try:
+        scope_map = (load_scope_map().get("tg_topics") or {})
+        scope = scope_map.get(message_thread_id) or scope_map.get(str(message_thread_id))
+        if scope:
+            block = build_scope_context(str(scope))
+            if block:
+                task_prompt = block.rstrip() + "\n\n---\n\n" + task_prompt
+                scope_label = f" | scope={scope}"
+    except Exception as e:
+        logger.warning(f"tasks-topic scope lookup failed: {e}")
+
     # Determine model from config
     tasks_config = config.get('tasks', {})
     model = tasks_config.get('model', 'sonnet')
@@ -1362,7 +1377,7 @@ async def _handle_tasks_topic(update, context, user_id, message, chat_id, messag
         if result["status"] == "spawned":
             await update.message.reply_text(
                 f"Взяла в работу. Результат напишу сюда.\n"
-                f"Model: {result.get('model', model)} | Timeout: {timeout // 60} min",
+                f"Model: {result.get('model', model)} | Timeout: {timeout // 60} min{scope_label}",
                 message_thread_id=message_thread_id
             )
         else:

@@ -1,0 +1,53 @@
+# Scope routing config (Tier 1 hot-reload).
+#
+# Maps Telegram topic IDs and entity tokens to Klava scopes (Obsidian
+# folder paths). Used by:
+#   - gateway/tg-bot.py: tasks-topic spawns inherit scope from tg_topics.
+#   - tasks/queue.py: create_task auto-infers scope from entity_to_scope
+#     when caller passed scope=None.
+#   - tasks/scope.py: list_known_scopes merges this with auto-discovery
+#     of <vault>/<scope>/_project.md hub notes.
+#
+# All keys are optional; missing config means no auto-tagging (fall back
+# to current behavior).
+
+# TG topic id -> scope. Only Tasks topic is currently scoped because that's
+# the only topic that auto-spawns Klava sessions.
+tg_topics: {}
+  # 966571: ""              # Tasks topic — leave empty unless you want all
+  #                         # forwarded messages to default to one scope.
+
+# Entity token -> scope. Case-insensitive substring match against task
+# title + body. Most-specific (longest) match wins. Folder discovery
+# already covers vault subfolders; use this for synonyms / aliases that
+# the folder name doesn't capture.
+entity_to_scope:
+  # Astrum aliases
+  "Astrum": "Astrum/"
+  "PumpFun": "Astrum/"
+  "CryptMe": "Astrum/"
+  "Vitya": "Astrum/"
+
+  # Vox Lab top-level
+  "Vox Harbor": "Vox Lab/"
+  "Vox Lab": "Vox Lab/"
+
+  # XOV cluster (deal lives in Vox Lab/Deals/Physical Intelligence/)
+  "XOV": "Vox Lab/Deals/Physical Intelligence/"
+  "Pufit": "Vox Lab/Deals/Physical Intelligence/"
+
+  # Books deal — Eldil
+  "Eldil": "Vox Lab/Deals/Eldil AI/"
+  "Ayush": "Vox Lab/Deals/Eldil AI/"
+
+  # O-1
+  "O-1": "Life/"
+  "O1 visa": "Life/"
+
+# Hard-coded list of "known" scopes the picker should always show even
+# if no _project.md hub note exists. Auto-discovery handles the rest.
+known_scopes:
+  - "Astrum/"
+  - "Vox Lab/"
+  - "Life/"
+  - "Klava/"

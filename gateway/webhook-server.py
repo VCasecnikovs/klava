@@ -192,7 +192,7 @@ SESSION_WATCHERS = {}
 # active_sessions: [{"tab_id": str|null, "session_id": str|null}, ...]
 _chat_ui_lock = threading.Lock()
 CHAT_UI_STATE_FILE = _gateway_config.state_dir() / "chat-ui.json"
-_chat_ui_state = {"version": 2, "active_sessions": [], "session_names": {}, "unread_sessions": [], "drafts": {}, "updated_at": ""}
+_chat_ui_state = {"version": 2, "active_sessions": [], "session_names": {}, "unread_sessions": [], "drafts": {}, "scopes": {}, "updated_at": ""}
 
 # Rate limiting (in-memory)
 rate_limit_store = defaultdict(list)
@@ -929,6 +929,25 @@ class ChatNamespace(Namespace):
             return
 
         prompt = self._prepare_prompt(prompt, files)
+
+        # Scope context: prepend the markdown block when this tab has a scope
+        # set and we're cold-starting (no claude_session_id, no resume). Once
+        # the SDK process has the conversation history, we don't re-inject.
+        try:
+            scope = (_chat_ui_state.get("scopes") or {}).get(tab_id)
+            existing = CHAT_SESSIONS.get(tab_id) or {}
+            if (
+                scope
+                and not resume_session_id
+                and not existing.get("claude_session_id")
+            ):
+                from tasks.scope import build_scope_context
+                block = build_scope_context(scope)
+                if block:
+                    prompt = block.rstrip() + "\n\n---\n\n" + prompt
+                    app.logger.info(f"Chat scope injected: tab={tab_id[:12]} scope={scope}")
+        except Exception as _e:
+            app.logger.warning(f"Scope injection skipped: {_e}")
 
         routed = self._route_message(prompt, tab_id, resume_session_id, model, effort, mode, files, socket_sid=sid)
         if routed:
@@ -3458,6 +3477,59 @@ def api_session_fork(session_id):
 # ============================================================
 # CHAT UI STATE API
 # ============================================================
+
+@app.route('/api/scopes', methods=['GET'])
+def api_scopes_list():
+    """List known Klava scopes for the picker.
+
+    Merges:
+      - cron/scopes.yaml `known_scopes`
+      - vault folders containing `_project.md` hub notes
+      - top-level vault folders + Vox Lab/Deals/* sub-folders
+    """
+    try:
+        from tasks.scope import list_known_scopes
+        return jsonify({"scopes": list_known_scopes()})
+    except Exception as e:
+        return jsonify({"error": str(e), "scopes": []}), 500
+
+
+@app.route('/api/chat/scope', methods=['GET', 'POST'])
+def api_chat_scope():
+    """Get or set the scope on a chat tab.
+
+    GET  ?tab_id=...      → {"scope": "Astrum/" | null}
+    POST {tab_id, scope?} → persists; clearing scope = pass scope=null/"".
+    Scope only takes effect on cold-start sends — already-running SDK
+    sessions keep their existing context until the next fresh tab.
+    """
+    if request.method == 'GET':
+        tab_id = request.args.get("tab_id")
+        if not tab_id:
+            return jsonify({"error": "tab_id required"}), 400
+        scope = (_chat_ui_state.get("scopes") or {}).get(tab_id)
+        return jsonify({"scope": scope})
+
+    data = request.get_json(silent=True) or {}
+    tab_id = data.get("tab_id")
+    scope_raw = data.get("scope")
+    if not tab_id:
+        return jsonify({"error": "tab_id required"}), 400
+    try:
+        from tasks.scope import validate_scope
+        scope = validate_scope(scope_raw) if scope_raw else None
+    except Exception as e:
+        return jsonify({"error": f"invalid scope: {e}"}), 400
+    with _chat_ui_lock:
+        scopes = _chat_ui_state.setdefault("scopes", {})
+        if scope:
+            scopes[tab_id] = scope
+        else:
+            scopes.pop(tab_id, None)
+        _save_chat_ui_state()
+    app.logger.info(f"Chat scope set: tab={tab_id[:12]} scope={scope!r}")
+    return jsonify({"ok": True, "scope": scope})
+
 
 @app.route('/api/chat/state', methods=['GET'])
 def api_chat_state():
