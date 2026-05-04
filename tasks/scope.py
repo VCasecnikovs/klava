@@ -144,7 +144,14 @@ def list_known_scopes() -> List[str]:
             if v:
                 out.add(v)
         # Top-level dirs
-        EXCLUDE_TOP = {".obsidian", ".trash", ".smart-env", "Templates", "Inbox", "Views", "Attachments"}
+        # Catch-all folders are not scopes themselves — they contain by-entity
+        # notes (one file per person/org) or transient lenses, never a project.
+        # Sub-folders inside them might still be scopes if they have _project.md.
+        EXCLUDE_TOP = {
+            ".obsidian", ".trash", ".smart-env", "Templates", "Inbox", "Views",
+            "Attachments", "People", "Organizations", "Topics", "Meetings",
+            "knowledge", "archive", "_artifacts",
+        }
         for entry in vault.iterdir():
             if entry.is_dir() and entry.name not in EXCLUDE_TOP and not entry.name.startswith("."):
                 v = validate_scope(entry.name + "/")
