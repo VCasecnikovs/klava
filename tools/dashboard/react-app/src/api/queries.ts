@@ -245,6 +245,25 @@ export function useSelfEvolve(enabled = false) {
   });
 }
 
+export function useScopes(enabled = false) {
+  return useQuery({
+    queryKey: ['scopes'],
+    queryFn: () => api.scopes().then(r => r.scopes),
+    enabled,
+    staleTime: 60000,
+  });
+}
+
+export function useScopeItems(scope: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['scope-items', scope],
+    queryFn: () => api.scopeItems(scope as string),
+    enabled: enabled && !!scope,
+    refetchInterval: 15000,
+    staleTime: 5000,
+  });
+}
+
 export function usePlans(enabled = false) {
   return useQuery({
     queryKey: ['plans'],

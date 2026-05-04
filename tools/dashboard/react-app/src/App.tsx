@@ -24,6 +24,7 @@ import { PeopleTab } from '@/components/tabs/People';
 import { ViewsTab } from '@/components/tabs/Views';
 
 import { HabitsTab } from '@/components/tabs/Habits';
+import { ScopesTab } from '@/components/tabs/Scopes';
 import { SettingsTab } from '@/components/tabs/Settings';
 
 const queryClient = new QueryClient({
@@ -48,7 +49,7 @@ function getInitialTab(): TabId {
   const valid: TabId[] = [
     'tasks', 'klava', 'deck', 'views', 'lifeline',
     'skills', 'health', 'files', 'heartbeat',
-    'people', 'habits', 'settings',
+    'people', 'habits', 'scopes', 'settings',
   ];
   return valid.includes(hash as TabId) ? (hash as TabId) : 'deck';
 }
@@ -292,6 +293,9 @@ function Dashboard() {
             </TabPage>
             <TabPage id="habits" active={activeTab}>
               {isVisited('habits') && <HabitsTab />}
+            </TabPage>
+            <TabPage id="scopes" active={activeTab}>
+              {isVisited('scopes') && <ScopesTab />}
             </TabPage>
             <TabPage id="settings" active={activeTab}>
               {isVisited('settings') && <SettingsTab />}

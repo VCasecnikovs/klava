@@ -3,6 +3,7 @@ import type {
   DealsData, PeopleData,
   HeartbeatData, FeedData, ViewsData, Session, SessionDetail,
   Agent, SelfEvolveData, SourcesData,
+  ScopeItemsData,
 } from './types';
 
 export interface KlavaTask {
@@ -163,6 +164,17 @@ export const api = {
     apiFetch<{ ok: boolean; tokens: number; limit: number; percent: number | null; model: string; raw?: Record<string, unknown> }>(
       `/api/chat/context-usage?tab_id=${encodeURIComponent(tabId)}`
     ),
+
+  // === Scopes ===
+  scopes: () => apiFetch<{ scopes: string[] }>('/api/scopes'),
+  scopeItems: (scope: string, limit = 10) =>
+    apiFetch<ScopeItemsData>(
+      `/api/scopes/${scope.split('/').filter(Boolean).map(encodeURIComponent).join('/')}/items?limit=${limit}`
+    ),
+  chatScopeGet: (tabId: string) =>
+    apiFetch<{ scope: string | null }>(`/api/chat/scope?tab_id=${encodeURIComponent(tabId)}`),
+  chatScopeSet: (tabId: string, scope: string | null) =>
+    apiPost('/api/chat/scope', { tab_id: tabId, scope }) as Promise<{ ok: boolean; scope: string | null }>,
   sessionFork: (sessionId: string) =>
     apiPost(`/api/sessions/${sessionId}/fork`, {}) as Promise<{ session_id: string; source_id: string; name: string; messages: number }>,
 

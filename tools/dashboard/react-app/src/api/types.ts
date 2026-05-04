@@ -482,7 +482,47 @@ export interface FeedData {
 export type TabId =
   | 'feed' | 'tasks' | 'klava' | 'deck' | 'views' | 'lifeline'
   | 'skills' | 'health' | 'files' | 'heartbeat'
-  | 'people' | 'habits' | 'settings';
+  | 'people' | 'habits' | 'scopes' | 'settings';
+
+// === Scopes ===
+
+export interface ScopeTaskRow {
+  id: string;
+  title: string;
+  priority: string;
+  status: string;
+  source: string;
+  created: string | null;
+  completed_at: string | null;
+  scope: string | null;
+  type?: string;
+}
+
+export interface ScopeNoteRow {
+  path: string;
+  mtime: number;
+  preview: string;
+}
+
+export interface ScopeSessionRow {
+  ts: string;
+  sid: string;
+  scope: string;
+  trigger: string;
+  summary: string;
+  artifacts?: string[];
+  duration_s?: number;
+}
+
+export interface ScopeItemsData {
+  scope: string;
+  hub: Record<string, unknown> | null;
+  notes: ScopeNoteRow[];
+  tasks: ScopeTaskRow[];
+  results: ScopeTaskRow[];
+  sessions: ScopeSessionRow[];
+  counts: { open_tasks: number; results: number; sessions: number };
+}
 
 export interface TabConfig {
   id: TabId;
@@ -504,6 +544,7 @@ export const TABS: TabConfig[] = [
 
   { id: 'files', label: 'Files' },
   { id: 'people', label: 'People', badgeId: 'people', badgeStyle: 'subtle' },
+  { id: 'scopes', label: 'Scopes', badgeId: 'scopes', badgeStyle: 'subtle' },
   { id: 'settings', label: 'Settings' },
 ];
 

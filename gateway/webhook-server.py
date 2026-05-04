@@ -3494,6 +3494,96 @@ def api_scopes_list():
         return jsonify({"error": str(e), "scopes": []}), 500
 
 
+@app.route('/api/scopes/<path:scope>/items', methods=['GET'])
+def api_scope_items(scope):
+    """Return tasks/results/sessions in a scope subtree.
+
+    `scope` is URL-decoded by Flask. We re-validate via tasks.scope.validate_scope.
+    Hierarchy applies: scope=Vox Lab/ matches all descendants. Caps via
+    ?limit=N (default 10 tasks, 10 results, 10 sessions). Hub frontmatter
+    is also returned when <scope>/_project.md exists.
+    """
+    try:
+        from tasks.scope import (
+            validate_scope, matches_scope, _read_hub, _recent_notes,
+        )
+        from tasks.queue import list_tasks
+    except Exception as e:
+        return jsonify({"error": f"scope module unavailable: {e}"}), 500
+
+    norm = validate_scope(scope)
+    if not norm:
+        return jsonify({"error": "invalid scope"}), 400
+
+    try:
+        limit = int(request.args.get("limit", 10))
+    except (TypeError, ValueError):
+        limit = 10
+
+    try:
+        all_tasks = list_tasks(include_completed=True)
+    except Exception as e:
+        return jsonify({"error": f"list_tasks failed: {e}"}), 500
+
+    open_tasks = []
+    results = []
+    for t in all_tasks:
+        if not matches_scope(getattr(t, "scope", None), norm):
+            continue
+        if t.type == "result":
+            results.append(t)
+        else:
+            if t.status in ("pending", "running") and t.gtask_status != "completed":
+                if (t.title or "").lstrip().startswith("[PROPOSAL]"):
+                    continue
+                open_tasks.append(t)
+
+    open_tasks.sort(key=lambda t: ({"high": 0, "medium": 1, "low": 2}.get(t.priority, 1), t.created or ""))
+    results.sort(key=lambda t: t.completed_at or t.created or "", reverse=True)
+
+    def _task_dict(t):
+        return {
+            "id": t.id, "title": t.title, "priority": t.priority,
+            "status": t.status, "source": t.source,
+            "created": t.created, "completed_at": t.completed_at,
+            "scope": t.scope, "type": t.type,
+        }
+
+    sessions = []
+    try:
+        from lib import session_log
+        sessions = session_log.tail_for_scope(norm, limit=limit)
+    except Exception as e:
+        app.logger.debug(f"session_log read failed: {e}")
+
+    hub = None
+    try:
+        hub = _read_hub(norm)
+    except Exception:
+        pass
+
+    notes = []
+    try:
+        for rel, mtime, preview in _recent_notes(norm, 5):
+            notes.append({"path": str(rel), "mtime": mtime, "preview": preview})
+    except Exception:
+        pass
+
+    return jsonify({
+        "scope": norm,
+        "hub": hub,
+        "notes": notes,
+        "tasks": [_task_dict(t) for t in open_tasks[:limit]],
+        "results": [_task_dict(t) for t in results[:limit]],
+        "sessions": sessions,
+        "counts": {
+            "open_tasks": len(open_tasks),
+            "results": len(results),
+            "sessions": len(sessions),
+        },
+    })
+
+
 @app.route('/api/chat/scope', methods=['GET', 'POST'])
 def api_chat_scope():
     """Get or set the scope on a chat tab.

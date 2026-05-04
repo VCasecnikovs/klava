@@ -5,6 +5,7 @@ import { uuid } from './uuid';
 import { SpinnerBar } from './blocks/SpinnerBar';
 import { PermissionToggle } from './blocks/PermissionToggle';
 import { ContextUsage } from './blocks/ContextUsage';
+import { ScopePicker } from './ScopePicker';
 import type { Skill } from '@/api/types';
 
 const MODEL_OPTIONS = [
@@ -520,6 +521,7 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
       <div className="chat-controls-bar">
         <SpinnerBar />
         <div className="chat-controls-group">
+          <ScopePicker tabId={state.tabId} />
           <ContextUsage />
           {/* Hidden file input */}
           <input
