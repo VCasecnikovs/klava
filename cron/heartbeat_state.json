@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-04T23:48:35.529407+00:00",
+  "last_run": "2026-05-05T04:44:50.366550+00:00",
   "reported": {
     "sf_clawcamp_may1": "2026-04-24T18:44:54.565421",
     "gleb_compliance_followup": "2026-04-24T18:44:54.565422",
@@ -613,7 +613,16 @@
     "vox_dev_pufit_5m_corpus_may5": "2026-05-04T16:21:34.174908",
     "dima_internet_back_may5": "2026-05-04T16:21:34.174908",
     "pufit_vitya_confrontation_may5": "2026-05-04T16:21:34.174908",
-    "karl_isbn_extraction_may5": "2026-05-04T16:21:34.174908"
+    "karl_isbn_extraction_may5": "2026-05-04T16:21:34.174908",
+    "shawn_isbn_68k_delivery_may4": "2026-05-05T02:05:04.426697+00:00",
+    "shawn_sf_meetup_may4": "2026-05-05T02:05:04.426697+00:00",
+    "pufit_yelling_vitya_feedback_may4": "2026-05-05T02:05:04.426697+00:00",
+    "cal_artem_vadims_may18": "2026-05-05T02:05:04.426697+00:00",
+    "amazon_isbn_may5": "2026-05-05T04:44:50.366550+00:00",
+    "pufit_yelling_followup_may5": "2026-05-05T04:44:50.366550+00:00",
+    "github_pillow_advisory_may5": "2026-05-05T04:44:50.366550+00:00",
+    "alex_greenstein_turnkey_may5": "2026-05-05T04:44:50.366550+00:00",
+    "familia_samarkand_may5": "2026-05-05T04:44:50.366550+00:00"
   },
   "seen_cal_events": {
     "vadim_shawn_apr25_0030": {
@@ -877,6 +886,14 @@
       "title": "Catch up / data",
       "start": "2026-05-18T07:00:00",
       "attendees": []
+    },
+    "artem_vadims_may18": {
+      "title": "Artem x Vadims 1-1",
+      "start": "2026-05-18T10:00:00",
+      "attendees": [
+        "artem@vox-lab.com",
+        "vadims@vox-lab.com"
+      ]
     }
   }
 }
