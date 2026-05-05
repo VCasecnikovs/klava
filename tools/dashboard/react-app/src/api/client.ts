@@ -30,6 +30,7 @@ export interface KlavaTask {
   proposal_status?: 'pending' | 'approved' | 'rejected' | null;
   proposal_plan?: string | null;
   result_of?: string | null;
+  scope?: string | null;
 }
 
 export interface StreamingSession {

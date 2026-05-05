@@ -44,6 +44,17 @@ function visibleTitle(t: KlavaTask): string {
   return t.title.replace(/^\[[A-Z]+\]\s*/, '');
 }
 
+function scopeShortLabel(scope: string): string {
+  // "Vox Lab/Deals/Eldil AI/" → "Eldil AI"; "Astrum/" → "Astrum".
+  // Special-case the deepest XOV folder to a short alias.
+  const trimmed = scope.replace(/\/$/, '');
+  if (trimmed === 'Vox Lab/Deals/Physical Intelligence' || trimmed === 'Vox Lab/Deals/Physical Intelligence/'.replace(/\/$/, '')) {
+    return 'XOV';
+  }
+  const parts = trimmed.split('/');
+  return parts[parts.length - 1] || scope;
+}
+
 function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
   try {
@@ -554,6 +565,15 @@ function UniversalCard({ task, exiting, onAction, onLaunch, onSnooze, onContinue
         {task.mode_tags?.map(m => (
           <span key={m} className="deck-mode-tag">{m}</span>
         ))}
+        {task.scope && (
+          <span
+            className="deck-mode-tag"
+            title={`Scope: ${task.scope}`}
+            style={{ color: '#fbbf24', borderColor: '#a16207', background: '#422006' }}
+          >
+            {scopeShortLabel(task.scope)}
+          </span>
+        )}
         {task._section && <span className="deck-mode-tag">{task._section}</span>}
         <span className="deck-card-source">{task._list_name || task.source || 'manual'}</span>
         {task.criticality != null && (

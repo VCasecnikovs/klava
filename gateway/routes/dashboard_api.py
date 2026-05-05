@@ -851,6 +851,7 @@ def api_klava_tasks():
                 "proposal_status": getattr(t, "proposal_status", None),
                 "proposal_plan": getattr(t, "proposal_plan", None),
                 "result_of": getattr(t, "result_of", None),
+                "scope": getattr(t, "scope", None),
             }
             # Check if running session has pending question
             if live:
