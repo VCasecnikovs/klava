@@ -5,14 +5,22 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 167
-- Items fixed (30d): 85
+- Items added (30d): 168
+- Items fixed (30d): 86
 - Avg days open: 0
-- Last run: 2026-05-04
+- Last run: 2026-05-05
 
 ---
 
 ## Items
+
+### [2026-05-05] backfill_result_dedup: crashes on bad keeper, skips all remaining clusters
+- **source:** self-evolve CRON analysis
+- **priority:** medium
+- **status:** done
+- **seen:** 2
+- **description:** `result-backlog-grooming` CRON failing daily (May 4+5) with Exit code 1. Root cause: `backfill_result_dedup.py` calls `update_task_notes(keeper.id, ...)` without try-except. When the keeper task is stale/deleted and returns 400 badRequest, the entire script crashes — all remaining clusters skipped. Same bad task `Qm5uVkQ4R2FuYlpjcWE4Ug` (now deleted) triggered both failures.
+- **resolved:** 2026-05-05 Wrapped `update_task_notes` call in try-except in `merge_cluster()`. On 400/failure: WARN is printed, function returns None, remaining clusters still process. Also manually ran the merge: 5 of 6 pending clusters collapsed successfully.
 
 ### [2026-04-28] task-consumer: mark_running 400 → exit(1) trips circuit breaker 3x
 - **source:** self-evolve CRON analysis

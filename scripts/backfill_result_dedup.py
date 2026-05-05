@@ -97,7 +97,11 @@ def merge_cluster(cluster, *, dry_run, lid):
     }
 
     if not dry_run:
-        update_task_notes(keeper.id, keeper.to_notes(), list_id=lid)
+        try:
+            update_task_notes(keeper.id, keeper.to_notes(), list_id=lid)
+        except Exception as e:
+            print(f"  WARN: failed to update keeper {keeper.id}: {e}", file=sys.stderr)
+            return None
         for t, _ in others:
             try:
                 complete_task(t.id, list_id=lid)
