@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-05T09:39:19.746474",
+  "last_run": "2026-05-05T20:05:00.000000",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -9,7 +9,14 @@
     "gtask-pulse-may5-2026-05-05": "2026-05-05T08:40:37.541440",
     "shawn-lang-wishlist-2026-05-05": "2026-05-05T09:39:19.746481",
     "gmail-newsletters-2026-05-05-evening": "2026-05-05T09:39:19.746483",
-    "olga-knyazeva-whatsapp-bukhara-2026-05-05": "2026-05-05T09:39:19.746485"
+    "olga-knyazeva-whatsapp-bukhara-2026-05-05": "2026-05-05T09:39:19.746485",
+    "cal-ilia-vadims-may5-sf-ghost": "2026-05-05T20:05:00.000000",
+    "gmail-googleai-webhooks-2026-05-05": "2026-05-05T20:05:00.000000",
+    "gmail-renaissance-bangalore-2026-05-05": "2026-05-05T20:05:00.000000",
+    "gtask-eldil-lang-inventory-new": "2026-05-05T20:05:00.000000",
+    "gtask-result-dima-langbreakdown": "2026-05-05T20:05:00.000000",
+    "gtask-proposal-signal-dima-langbreakdown": "2026-05-05T20:05:00.000000",
+    "gtask-proposal-reply-shawn-punjabi": "2026-05-05T20:05:00.000000"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
@@ -91,6 +98,12 @@
       "title": "Artem x Vadims 1-1",
       "start": "2026-05-18T10:00",
       "attendees": []
+    },
+    "cal_casecnikov_ilia_vadims_may5": {
+      "title": "Ilia <> Vadims",
+      "start": "2026-05-05T12:00",
+      "attendees": [],
+      "note": "GHOST - Vadim in Latvia. Likely Ilia Zintchenko (XOV advisor). Urgent task created djBVQzlRY0dqeDkzaEFZWg"
     }
   }
 }
