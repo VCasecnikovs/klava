@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-05T20:05:00.000000",
+  "last_run": "2026-05-05T20:35:00.000000",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -16,7 +16,14 @@
     "gtask-eldil-lang-inventory-new": "2026-05-05T20:05:00.000000",
     "gtask-result-dima-langbreakdown": "2026-05-05T20:05:00.000000",
     "gtask-proposal-signal-dima-langbreakdown": "2026-05-05T20:05:00.000000",
-    "gtask-proposal-reply-shawn-punjabi": "2026-05-05T20:05:00.000000"
+    "gtask-proposal-reply-shawn-punjabi": "2026-05-05T20:05:00.000000",
+    "shawn-physical-books-scan-quote-2026-05-05": "2026-05-05T10:40:53.984488",
+    "dima-physical-books-update-2026-05-05": "2026-05-05T10:40:53.984488",
+    "gtask-ilia-result-proposal-seen": "2026-05-05T10:40:53.984488",
+    "dayflow-bluebottle-ilia-may5": "2026-05-05T10:40:53.984488",
+    "whatsapp-semya-registan-may5": "2026-05-05T10:40:53.984488",
+    "gmail-dima-catchup-reschedule-may5": "2026-05-05T10:40:53.984488",
+    "gmail-cryptodotcom-spam-may5": "2026-05-05T10:40:53.984488"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
