@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-05T08:41:51.551310+00:00",
+  "last_run": "2026-05-05T09:11:30+00:00",
   "reported": {
     "signal_dima_anthropic_rare_lang_2026-05-04": "2026-05-05T07:03:01.499350+00:00",
     "dima_signal_may5_pricing": "2026-05-05T08:13:53.800300+00:00",
@@ -35,7 +35,7 @@
       ]
     },
     "cal_vadims_5lif615fk19rtu44hr540k41bj_20260510": {
-      "title": "Nicegram \u043f\u043e\u0434\u0441\u0447\u0451\u0442 \u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0435\u0433\u043e \u043c\u0435\u0441\u044f\u0446\u0430",
+      "title": "Nicegram подсчёт предыдущего месяца",
       "start": "2026-05-10",
       "attendees": [
         "pufit@vox-lab.com",
@@ -81,12 +81,12 @@
       ]
     },
     "cal_casecnikov_6go3gpj2c8r3gbb1cpgj2b9kcgrm2bb16spm2bb175hj4opk68p3gdj5ck_20260512": {
-      "title": "\u0414\u0435\u043d\u044c \u0440\u043e\u0436\u0434\u0435\u043d\u0438\u044f \u0418\u0432\u0430\u043d\u0430 \u041a\u0430\u043b\u0430\u0448\u043d\u0438\u043a\u0430",
+      "title": "День рождения Ивана Калашника",
       "start": "2026-05-12",
       "attendees": []
     },
     "cal_casecnikov_6pgj8cpn74r36bb6ccs3ib9k6lhjgbb16lh3ib9g6lh3gdr364o3edhj6g_20260512": {
-      "title": "\u0414\u0440 \u0418\u0432\u0430\u043d\u0430 \u041a\u0430\u043b\u0430\u0448\u043d\u0438\u043a\u0430",
+      "title": "Др Ивана Калашника",
       "start": "2026-05-12",
       "attendees": []
     },
@@ -109,7 +109,7 @@
       "attendees": []
     },
     "cal_casecnikov_1041khgt3k8oeeudvgp4krlhfl": {
-      "title": "\u0418\u043b\u044c\u044f <> \u0412\u0430\u0434\u0438\u043c\u0441",
+      "title": "Илья <> Вадимс",
       "start": "2026-05-08T10:30:00-07:00",
       "attendees": [
         "pyatnitskiy@utexas.edu",
@@ -126,12 +126,12 @@
       ]
     },
     "cal_vadims_toh8fs6ms2eg87vck369bdaihs": {
-      "title": "\u041f\u043e\u043f\u0440\u043e\u0441\u0438\u0442\u044c \u0414\u0430\u0448\u0443 \u043f\u043e\u043c\u043e\u0447\u044c \u043f\u043e \u0410\u0441\u0442\u0440\u0443\u043c\u0443",
+      "title": "Попросить Дашу помочь по Аструму",
       "start": "2026-05-09",
       "attendees": []
     },
     "cal_casecnikov_60ojce34cgs36bb46lhj0b9kc8q30bb2cgs3ib9g65gjgcr5chgjechi60_20260515": {
-      "title": "\u0414\u0435\u043d\u044c \u0440\u043e\u0436\u0434\u0435\u043d\u0438\u044f \u0412\u043b\u0430\u0434\u0438\u043a\u0430 \u0414\u043e\u043c\u0431\u0440\u043e\u0432\u0441\u043a\u043e\u0433\u043e",
+      "title": "День рождения Владика Домбровского",
       "start": "2026-05-15",
       "attendees": []
     },
@@ -157,7 +157,7 @@
       ]
     },
     "cal_casecnikov_4d0868h6o0bdlhou84hmvor522_20260516T150000Z": {
-      "title": "\u0411\u0440\u0430\u0442\u0441\u043a\u0438\u0439 \u0441\u0438\u043d\u043a",
+      "title": "Братский синк",
       "start": "2026-05-16T08:00:00-07:00",
       "attendees": [
         "casecnikov@gmail.com",
@@ -165,7 +165,7 @@
       ]
     },
     "cal_casecnikov_06bh3bsm2apgumvpn73q21g347": {
-      "title": "\u0421\u0438\u043d\u043a, \u0447\u0442\u043e \u043c\u044b \u0440\u0435\u0430\u043b\u044c\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u043b\u0438",
+      "title": "Синк, что мы реально сделали",
       "start": "2026-05-11T06:00:00-07:00",
       "attendees": [
         "krasnobo@gmail.com",
@@ -205,6 +205,13 @@
       "attendees": [
         "pufit@vox-lab.com",
         "vadims@vox-lab.com"
+      ]
+    },
+    "cal_pozvolit_mame_20260510": {
+      "title": "Позвонить маме - Mother's Day",
+      "start": "2026-05-10T03:00:00",
+      "attendees": [
+        "casecnikov@gmail.com"
       ]
     }
   }
