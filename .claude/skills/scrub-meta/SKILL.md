@@ -10,6 +10,8 @@ Sanitize a file before sending it externally. Removes everything that fingerprin
 
 Always writes to a fresh copy. The original is never modified.
 
+> **Always invoke this skill — never roll a manual scrub.** A manual one-off scrub will reliably miss at least one leak vector. The most common silent miss is `<x15ac:absPath>` inside `xl/workbook.xml` of any Office-for-Mac xlsx — invisible in Excel UI, but one `unzip -p` away from leaking the original full path including username and folder names. The script's OOXML branch rebuilds the file from scratch via openpyxl, which structurally cannot emit absPath, and the verify step greps `xl/workbook.xml` for standing leak terms (see `~/Documents/GitHub/claude/.claude/skills/personal/scrub-meta/leak-terms.txt`) as a backstop. Regression test: `tests/test_xlsx_abspath.py`.
+
 ## Flow
 
 1. Resolve input
