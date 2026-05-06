@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T21:44:10.539497+00:00",
+  "last_run": "2026-05-06T22:19:28.388880+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -102,7 +102,16 @@
     "signal-perfecto-yield-3m-broken-may7": "2026-05-06T21:44:10.539497+00:00",
     "gmail-turingpost-agentic-vectors-may7": "2026-05-06T21:44:10.539497+00:00",
     "gtask-proposal-misha-parallelism-seen": "2026-05-06T21:44:10.539497+00:00",
-    "whatsapp-dominik-minerva-humanoids-may7": "2026-05-06T21:44:10.539497+00:00"
+    "whatsapp-dominik-minerva-humanoids-may7": "2026-05-06T21:44:10.539497+00:00",
+    "signal-dima-box-amazon-delivery-may7-2": "2026-05-06T22:19:28.388880+00:00",
+    "signal-voxlabdev-books-yield-may7": "2026-05-06T22:19:28.388880+00:00",
+    "signal-perfecto-books-yield-confirm-may7": "2026-05-06T22:19:28.388880+00:00",
+    "gtask-dominik-minerva-dispatch-may7": "2026-05-06T22:19:28.388880+00:00",
+    "gtask-proposal-amazon-3m-walkback-seen": "2026-05-06T22:19:28.388880+00:00",
+    "gtask-proposal-dima-apr28-drops-seen": "2026-05-06T22:19:28.388880+00:00",
+    "gtask-proposal-dominik-minerva-intro-seen": "2026-05-06T22:19:28.388880+00:00",
+    "morning-brief-may7-written": "2026-05-06T22:19:28.388880+00:00",
+    "dayflow-vox-dima-extraction-may6-latest": "2026-05-06T22:19:28.388880+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
