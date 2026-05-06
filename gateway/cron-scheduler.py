@@ -997,6 +997,12 @@ class JobManager:
             # Job config must use a 60+ min delay and max_attempts=1 so one retry
             # gives the usage window a chance to roll without burning cycles.
             "exit code 143",
+            # Anthropic SSE stream stays idle mid-response. Distinct from wall-clock
+            # "Timeout after Ns" - the session was healthy and partway through; one
+            # retry on the existing job's delay almost always succeeds.
+            # Regression: Apr 29 reflection catch_up died at 45.8min/90min budget.
+            "Stream idle timeout",
+            "partial response received",
         ]
         return any(p.lower() in err for p in retryable_patterns)
 
