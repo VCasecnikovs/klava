@@ -5,14 +5,30 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 168
-- Items fixed (30d): 86
+- Items added (30d): 170
+- Items fixed (30d): 88
 - Avg days open: 0
-- Last run: 2026-05-05
+- Last run: 2026-05-06
 
 ---
 
 ## Items
+
+### [2026-05-06] MEMORY.md over 200-line limit - context truncated every session
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** MEMORY.md was 201 lines, exceeding the 200-line load limit. The last line (fresh-install UX testing section ending) was silently dropped every session.
+- **resolved:** 2026-05-06 Condensed Fresh-install UX testing section from 6 lines to 1 line. File now 198 lines.
+
+### [2026-05-06] evidence-closer jobs missing catch_up config - silently skip on scheduler downtime
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** `evidence-closer` and `evidence-closer-proposals` had no `catch_up` config. When scheduler was down at their scheduled 05:15/05:30 UTC window (May 6), both were silently skipped. `evidence-closer-proposals` has NEVER run since it was added May 6 04:09 UTC.
+- **resolved:** 2026-05-06 Added `"catch_up": {"enabled": true, "max_catch_up": 1}` to both jobs in cron/jobs.json. Scheduler hot-reload will pick this up within 1 minute.
 
 ### [2026-05-05] backfill_result_dedup: crashes on bad keeper, skips all remaining clusters
 - **source:** self-evolve CRON analysis
