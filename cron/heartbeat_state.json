@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T09:06:48.453679+00:00",
+  "last_run": "2026-05-06T09:35:31.931997+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -57,7 +57,8 @@
     "jack_monda_may06": "2026-05-06T04:40:16.678417+00:00",
     "pufit_gh_vk_may05": "2026-05-06T04:40:16.678418+00:00",
     "vk_books_dispatch_may06": "2026-05-06T04:40:16.678419+00:00",
-    "vox_lab_dev_pufit_vk_pricing_may6": "2026-05-06T05:22:47.882673+00:00"
+    "vox_lab_dev_pufit_vk_pricing_may6": "2026-05-06T05:22:47.882673+00:00",
+    "pufit-wallet-cache-policy-may6": "2026-05-06T09:35:31.932144+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
