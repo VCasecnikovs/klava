@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T16:47:13.899802+00:00",
+  "last_run": "2026-05-06T19:08:34.660918+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -77,7 +77,10 @@
     "vox_lab_dev_books_perfecto_2026-05-06": "2026-05-06T09:47:13.900002",
     "dayflow_wallet_maksim_call_2026-05-06": "2026-05-06T09:47:13.900007",
     "whatsapp_dominik_silent_speech_2026-05-06": "2026-05-06T09:47:13.900009",
-    "signal_karl_russian_library_2026-05-06": "2026-05-06T09:47:13.900010"
+    "signal_karl_russian_library_2026-05-06": "2026-05-06T09:47:13.900010",
+    "hlopya_wallet_maksim_call_2026-05-06": "2026-05-06T19:08:34.661133+00:00",
+    "signal_xov_fetherlabs_2026-05-06": "2026-05-06T19:08:34.661133+00:00",
+    "gmail_vecty_invoice_2026-05-06": "2026-05-06T19:08:34.661133+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
