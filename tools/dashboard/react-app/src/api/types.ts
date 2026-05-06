@@ -496,6 +496,16 @@ export interface ScopeTaskRow {
   completed_at: string | null;
   scope: string | null;
   type?: string;
+  body?: string;
+  session_id?: string | null;
+  result_of?: string | null;
+}
+
+export interface ScopeViewRow {
+  filename: string;
+  title: string;
+  mtime: number;
+  scope: string;
 }
 
 export interface ScopeNoteRow {
@@ -521,7 +531,8 @@ export interface ScopeItemsData {
   tasks: ScopeTaskRow[];
   results: ScopeTaskRow[];
   sessions: ScopeSessionRow[];
-  counts: { open_tasks: number; results: number; sessions: number };
+  views: ScopeViewRow[];
+  counts: { open_tasks: number; results: number; sessions: number; views: number };
 }
 
 export interface TabConfig {

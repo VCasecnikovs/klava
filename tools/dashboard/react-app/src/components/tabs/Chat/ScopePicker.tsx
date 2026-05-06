@@ -67,17 +67,30 @@ export function ScopePicker({ tabId }: Props) {
     setFilter('');
   };
 
-  const label = scope ? scope.replace(/\/$/, '') : 'no scope';
+  const label = scope ? scope.replace(/\/$/, '').split('/').pop() || scope : 'no scope';
   const tooltip = scope
-    ? `Scope: ${scope} (cleared on next chat unless you keep this)`
+    ? `Scope: ${scope}\nClick to change. Shift-click to open project page.`
     : 'No scope. Pick one to give Klava project context for this chat.';
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (scope && (e.shiftKey || e.metaKey)) {
+      // Jump to Scopes tab and select this scope.
+      e.preventDefault();
+      window.dispatchEvent(
+        new CustomEvent('scopes:open', { detail: { scope } })
+      );
+      window.location.hash = 'scopes';
+      return;
+    }
+    setOpen(o => !o);
+  };
 
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={handleClick}
         title={tooltip}
         disabled={!tabId}
         style={{
@@ -85,17 +98,18 @@ export function ScopePicker({ tabId }: Props) {
           color: scope ? '#fbbf24' : '#a1a1aa',
           border: `1px solid ${scope ? '#a16207' : BORDER}`,
           fontSize: 11,
-          padding: '3px 8px',
+          padding: '3px 10px',
           borderRadius: 10,
           cursor: tabId ? 'pointer' : 'not-allowed',
           opacity: tabId ? 1 : 0.5,
-          maxWidth: 200,
+          maxWidth: 240,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          fontWeight: scope ? 600 : 400,
         }}
       >
-        {scope ? '🎯 ' : ''}{label}
+        {scope ? '📁 ' : ''}{label}
       </button>
 
       {open && (

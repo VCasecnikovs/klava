@@ -3506,6 +3506,7 @@ def api_scope_items(scope):
     try:
         from tasks.scope import (
             validate_scope, matches_scope, _read_hub, _recent_notes,
+            views_for_scope,
         )
         from tasks.queue import list_tasks
     except Exception as e:
@@ -3542,11 +3543,20 @@ def api_scope_items(scope):
     results.sort(key=lambda t: t.completed_at or t.created or "", reverse=True)
 
     def _task_dict(t):
+        body = t.body or ""
+        # Cap inline body so the response stays small even when scopes have
+        # long result cards. Frontend can fetch full body via /api/klava/tasks
+        # if needed.
+        if len(body) > 4000:
+            body = body[:4000] + "\n…(truncated)"
         return {
             "id": t.id, "title": t.title, "priority": t.priority,
             "status": t.status, "source": t.source,
             "created": t.created, "completed_at": t.completed_at,
             "scope": t.scope, "type": t.type,
+            "body": body,
+            "session_id": t.session_id,
+            "result_of": t.result_of,
         }
 
     sessions = []
@@ -3569,6 +3579,12 @@ def api_scope_items(scope):
     except Exception:
         pass
 
+    views = []
+    try:
+        views = views_for_scope(norm, limit=20)
+    except Exception as e:
+        app.logger.debug(f"views_for_scope failed: {e}")
+
     return jsonify({
         "scope": norm,
         "hub": hub,
@@ -3576,10 +3592,12 @@ def api_scope_items(scope):
         "tasks": [_task_dict(t) for t in open_tasks[:limit]],
         "results": [_task_dict(t) for t in results[:limit]],
         "sessions": sessions,
+        "views": views,
         "counts": {
             "open_tasks": len(open_tasks),
             "results": len(results),
             "sessions": len(sessions),
+            "views": len(views),
         },
     })
 

@@ -376,6 +376,64 @@ def _cross_refs(notes: List[tuple[Path, float, str]]) -> tuple[List[str], List[s
 #  Open tasks + recent results — filtered by scope chain
 # ------------------------------------------------------------------
 
+_VIEW_TITLE_RE = re.compile(r"<title>([^<]{1,200})</title>", re.IGNORECASE)
+_VIEW_H1_RE = re.compile(r"<h1[^>]*>([^<]{1,200})</h1>", re.IGNORECASE)
+_VIEWS_LIMIT = 20
+
+
+def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, object]]:
+    """Return HTML view files in `<vault>/Views/` whose scope matches.
+
+    Strategy: the Views/ folder is flat and conventionally uses date-slug
+    filenames (`20260221-1430-genpeach-contract-review.html`). We infer the
+    scope of each file from its filename + first 2KB of content (caches the
+    inferred scope by mtime to avoid re-scanning every request).
+
+    Returns most-recent-first list of {filename, title, mtime, scope}.
+    """
+    scope = validate_scope(scope)
+    if not scope:
+        return []
+    vault = vault_root()
+    views_dir = vault / "Views"
+    if not views_dir.exists() or not views_dir.is_dir():
+        return []
+
+    out: List[tuple[float, Dict[str, object]]] = []
+    for path in views_dir.iterdir():
+        if not path.is_file() or path.suffix.lower() != ".html":
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        # Infer scope from filename (cheap) + small content peek (more signal).
+        try:
+            head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+        except OSError:
+            head = ""
+        inferred = infer_scope(path.stem + " " + head)
+        if not inferred or not matches_scope(inferred, scope):
+            continue
+        title = path.stem
+        m = _VIEW_TITLE_RE.search(head)
+        if m:
+            title = m.group(1).strip() or title
+        else:
+            mh1 = _VIEW_H1_RE.search(head)
+            if mh1:
+                title = mh1.group(1).strip() or title
+        out.append((mtime, {
+            "filename": path.name,
+            "title": title,
+            "mtime": mtime,
+            "scope": inferred,
+        }))
+
+    out.sort(key=lambda kv: -kv[0])
+    return [v for _m, v in out[:limit]]
+
+
 def _filtered_tasks(scope: str) -> tuple[List[object], List[object]]:
     """Return (open_tasks, recent_results) for this scope (or any ancestor).
 
