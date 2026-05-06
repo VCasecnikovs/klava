@@ -295,6 +295,7 @@ create_task(
     title="Research Acme Corp founders",
     priority="medium",
     source="heartbeat",
+    scope="Vox Lab/Deals/Acme Corp/",   # set when you know the project
     body=(
         "Context: Acme came up in a thread with Jane Smith last week.\n\n"
         "Goal: one-pager on founders, stage, competitive position. Produce:\n"
@@ -306,6 +307,8 @@ create_task(
 ```
 
 Write a GOOD body: full context (who, what, why), what the executor should produce (paths / artifacts), which sources to check. The body IS the executor's prompt payload.
+
+**Scope tagging.** Pass `scope="<Obsidian folder path>/"` when the task clearly belongs to one project — `"Astrum/"`, `"Vox Lab/Deals/Apple/"`, `"Life/"`. The executor uses scope to auto-load the project's hub note + open tasks + recent results before running, so it doesn't redo work and stays inside the project's world. If you omit `scope`, `create_task` runs `infer_scope(title + body)` against the entity map in `cron/scopes.yaml` — usually correct, but explicit beats inferred. The same applies to `create_proposal(scope=...)`.
 
 **Decision shortcut:**
 - Will the user want to read a draft or tweak the diff before it lands on something external? → **Propose.**
