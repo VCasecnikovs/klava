@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T20:42:40.651281+00:00",
+  "last_run": "2026-05-06T21:14:52.394068+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -87,7 +87,17 @@
     "defined-ai-onboarding-email-may6": "2026-05-06T20:38:00",
     "vox-dev-eagle-alpha-approved-may6": "2026-05-06T20:38:00",
     "vitya-astrum-sync-may11-accepted": "2026-05-06T20:38:00",
-    "dima-abramov-amazon-active-may6": "2026-05-06T20:38:00"
+    "dima-abramov-amazon-active-may6": "2026-05-06T20:38:00",
+    "amazon-offer-dima-may6-evening": "2026-05-06T21:14:52.394068+00:00",
+    "amazon-1week-promise-may6": "2026-05-06T21:14:52.394068+00:00",
+    "ayush-5m-titles-warehouse-may6": "2026-05-06T21:14:52.394068+00:00",
+    "dima-india-price-concern-may6": "2026-05-06T21:14:52.394068+00:00",
+    "shawn-punjabi-isbn-clarification-may6": "2026-05-06T21:14:52.394068+00:00",
+    "shawn-loom-video-may6": "2026-05-06T21:14:52.394068+00:00",
+    "vox-dev-books-scaling-may6": "2026-05-06T21:14:52.394068+00:00",
+    "obsidian-vitya-sync-brief-may6": "2026-05-06T21:14:52.394068+00:00",
+    "obsidian-germany-research-v2-may6": "2026-05-06T21:14:52.394068+00:00",
+    "whatsapp-semya-may6-noise": "2026-05-06T21:14:52.394068+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
