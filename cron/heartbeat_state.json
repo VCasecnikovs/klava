@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T19:08:34.660918+00:00",
+  "last_run": "2026-05-06T19:42:06.919639+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -168,6 +168,14 @@
       "start": "2026-05-05T12:00",
       "attendees": [],
       "note": "GHOST - Vadim in Latvia. Likely Ilia Zintchenko (XOV advisor). Urgent task created djBVQzlRY0dqeDkzaEFZWg"
+    },
+    "cal_casecnikov_arto_may7": {
+      "title": "Arto @ Frontier Tower",
+      "start": "2026-05-07T14:00",
+      "attendees": [
+        "Arto Bendiken"
+      ],
+      "location": "995 Market St, San Francisco, CA 94103"
     }
   }
 }
