@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T20:17:23.369356+00:00",
+  "last_run": "2026-05-06T20:42:40.651281+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -81,7 +81,13 @@
     "hlopya_wallet_maksim_call_2026-05-06": "2026-05-06T19:08:34.661133+00:00",
     "signal_xov_fetherlabs_2026-05-06": "2026-05-06T19:08:34.661133+00:00",
     "gmail_vecty_invoice_2026-05-06": "2026-05-06T19:08:34.661133+00:00",
-    "intake_2026-05-06_23h": "2026-05-06T20:17:23.369616+00:00"
+    "intake_2026-05-06_23h": "2026-05-06T20:17:23.369616+00:00",
+    "timur-greet-may6-evening": "2026-05-06T20:38:00",
+    "eagle-alpha-approved-may6": "2026-05-06T20:38:00",
+    "defined-ai-onboarding-email-may6": "2026-05-06T20:38:00",
+    "vox-dev-eagle-alpha-approved-may6": "2026-05-06T20:38:00",
+    "vitya-astrum-sync-may11-accepted": "2026-05-06T20:38:00",
+    "dima-abramov-amazon-active-may6": "2026-05-06T20:38:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
