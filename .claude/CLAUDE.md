@@ -49,6 +49,7 @@ Networking and deals matter more than sitting and coding. Alpha > code.
 1. Check skills before doing manually. Scan the skill list; if one matches, invoke it.
 2. Fix broken things you find. Don't work around — fix as part of the current task.
 3. Commit changes. New tracked files and edits go into a commit with a real message.
+4. Before sending any file externally (xlsx / docx / pptx / pdf / image / video / archive), run `/scrub-meta`. Manual scrubs reliably miss leak vectors — the most common is `<x15ac:absPath>` in xlsx workbook.xml, invisible in Excel UI but trivially extractable.
 
 ### Core stance
 
@@ -239,9 +240,25 @@ When writing a skill or a cron job that produces content the user should see:
 
 **Result topic dedup (default on).** `create_result()` scans recent (≤7d) result cards for one on the same topic — same explicit parent first, then a Claude `--print --model haiku` call (`tasks/llm_matcher.py`) that classifies the candidate set semantically, with token-Jaccard `_topic_similar()` as fallback when the LLM call fails or times out. If a pending match exists, the new body is appended as a timestamped Update section and `result_status` resets to `new`. If a match was acked (completed) within 48h, the new card is skipped entirely — user already saw it. Pass `dedup_topic=False` for inherently periodic cards (Pulse digests, daily reflections) that always want a fresh row. LLM call results are cached 30 min in `/tmp/klava-llm-matcher-cache/`.
 
+**Open-topic dedup for proposals + actionables (default on).** `create_task()` runs the same LLM matcher against pending non-result cards of the same `type` (and recently-completed cards within 48h) before writing. Stops heartbeat from regenerating paraphrased proposals tick after tick (`Reply Karl - clarify deal` vs `Karl - which deal he meant`) and stops resurrection of proposals the user already actioned. Lookback: pending ≤30d, done ≤48h. Helper: `_find_open_topic_match()` in `tasks/queue.py`. Bypassed for user-driven sources (`manual`, `chat`, `deck-continue`) so user-typed titles are respected as-is, and for `type="result"` (which has its own path). Emergency bypass: `KLAVA_DISABLE_LLM_DEDUP=1` env var.
+
 **Digest cards.** Periodic outputs (Pulse, Reflection, Mentor, Klava self-reports) should pass `digest=True` to `create_result()`. Two effects: (1) the card carries a `digest: true` frontmatter flag the Deck can use to render it in a separate, less-prominent section than artifact-with-ack cards; (2) auto-supersede with rollup — prior pending digests with the same `source` are completed AND their bodies folded into the new card under a `## History — prior {source} digests` section (most recent first, capped at 5). Nothing is dropped; only the latest digest is on the Deck but the history travels with it. Implies `dedup_topic=False`.
 
-**Evidence-driven auto-close.** `tasks/evidence_closer.py` walks pending [RESULT] cards once daily (cron `evidence-closer`, default `--dry-run`). For each card it (1) extracts a structured target via haiku LLM call (`{actionable, person, search_terms, channels}`, cached 7d on disk by card+title hash), then (2) queries the vadimgest FTS5 index for hits in messaging sources (signal/telegram/whatsapp/imessage/gmail/hlopya/calendar/github — never `claude`/`obsidian`/`heartbeat`, since Klava's own writes don't prove anything happened) dated after the card's `created`. Hits → close the card with an audit note appended to the body. No date-based auto-close — only evidence-driven. Output goes to a digest card on the Deck so the user reviews decisions before promoting cron to `--apply`.
+**Evidence-driven auto-close.** `tasks/evidence_closer.py` walks pending cards once daily (cron `evidence-closer` for results, `evidence-closer-proposals` for proposals — both default `--dry-run`). For each card it (1) extracts a structured target via haiku LLM call (`{actionable, person, search_terms, channels}`, cached 7d on disk by card+title hash), then (2) queries the vadimgest FTS5 index for hits in messaging sources (signal/telegram/whatsapp/imessage/gmail/hlopya/calendar/github — never `claude`/`obsidian`/`heartbeat`, since Klava's own writes don't prove anything happened) dated after the card's `created`. Hits → close the card with an audit note appended to the body. No date-based auto-close — only evidence-driven. Runner: `scripts/close_results_by_evidence.py --types result|proposal|task[,...]`. Output goes to a digest card on the Deck (per-type-set source so runs don't clobber each other) so the user reviews decisions before promoting cron to `--apply`.
+
+### Scopes (project tags)
+
+Every Klava task / result / session can carry a `scope` — an Obsidian folder path like `Astrum/`, `Vox Lab/Deals/Apple/`. The dashboard has a Scopes tab and a per-chat scope picker.
+
+When a scoped task spawns into a session, the consumer auto-prepends a `# Scope: <path>/` block above the executor doctrine. The block carries hub frontmatter (`<scope>/_project.md`), 5 most-recently-modified notes in that subtree, open scoped tasks, recent scoped result cards, recent scoped sessions, and people/orgs cross-referenced from the notes. ~600 tokens. Read it first when present — it's the project context the user briefed you with implicitly.
+
+When you create new tasks via `tasks.queue.create_task(...)` from inside a session, pass `scope="<folder path>/"` if you know the project. If you omit it, `create_task` runs `infer_scope(title + body)` against the entity map in `cron/scopes.yaml` (`Astrum`, `PumpFun`, `Eldil`, etc.). Auto-infer is usually right but sometimes mistags ambiguous titles ("Anthropic SDK" → Vox-deal instead of Klava); explicit scope beats inferred.
+
+Scope conventions:
+- Always trailing `/` (e.g. `Astrum/`, not `Astrum`).
+- Hierarchical: `Vox Lab/Deals/Apple/` rolls up under `Vox Lab/`.
+- Catch-all folders (`People/`, `Organizations/`, `Topics/`, `Meetings/`, `Inbox/`, `archive/`, `_artifacts/`) are NOT scopes — they contain notes about projects but are not projects themselves.
+- Hub note convention: `<scope>/_project.md` with YAML frontmatter (`status`, `stage`, `owner`, `next_milestone`, `deadline`, `key_people`). Optional but powerful — surfaces status pills + briefs in the auto-context block.
 
 ### Heartbeat architecture
 

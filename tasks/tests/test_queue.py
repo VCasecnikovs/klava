@@ -488,6 +488,203 @@ class TestCreateTaskTitleDedup:
         mock_gog.assert_called_once()
 
 
+# Regression: 2026-05-05. The Deck accumulated 67 pending [PROPOSAL] cards
+# because heartbeat re-emitted paraphrased duplicates ("Reply Karl Fisox -
+# clarify code deal" vs "Karl - which unlicensed code deal") and the
+# rejection-only dedup couldn't see them. Fix 1 wires the same LLM matcher
+# used by `_find_topic_match` (for [RESULT] cards) into `create_task`,
+# scoped to non-result types from automated sources.
+class TestCreateTaskLLMTopicDedup:
+    def _now_iso(self):
+        return datetime.now(timezone.utc).isoformat()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_match_against_pending_proposal_skips_create(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        """A heartbeat-sourced proposal whose title paraphrases an existing
+        pending proposal must reuse the existing card, not create a new row."""
+        from tasks.queue import create_task
+        from tasks import llm_matcher
+        existing = Task(
+            id="prop-1",
+            title="[PROPOSAL] Reply Karl Fisox - clarify which unlicensed code deal",
+            status="pending",
+            type="proposal",
+            created=self._now_iso(),
+        )
+        mock_list.return_value = [existing]
+        # Force the LLM matcher to return prop-1 as a same-topic match.
+        monkeypatch.setattr(
+            llm_matcher, "topic_matches_llm",
+            lambda new, candidates, **kw: ["prop-1"],
+        )
+        tid = create_task(
+            "[PROPOSAL] Karl - which unlicensed code deal he meant",
+            type="proposal",
+            source="heartbeat",
+        )
+        assert tid == "prop-1"
+        mock_gog.assert_not_called()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_match_against_recently_completed_skips_create(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        """If the user already completed a same-topic proposal in the last
+        48h, the next heartbeat must not resurrect it."""
+        from tasks.queue import create_task
+        from tasks import llm_matcher
+        recent = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+        existing = Task(
+            id="done-1",
+            title="[PROPOSAL] Reply Jack McGrath - schedule fresh slots",
+            status="done",
+            type="proposal",
+            created=recent,
+            completed_at=recent,
+        )
+        mock_list.return_value = [existing]
+        monkeypatch.setattr(
+            llm_matcher, "topic_matches_llm",
+            lambda new, candidates, **kw: ["done-1"],
+        )
+        tid = create_task(
+            "[PROPOSAL] Monda.ai - send Jack McGrath reply with fresh slots",
+            type="proposal",
+            source="heartbeat",
+        )
+        # Returns the existing done id; no new card created.
+        assert tid == "done-1"
+        mock_gog.assert_not_called()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_old_completed_proposal_does_not_block(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        """A proposal completed more than 48h ago must not block a fresh one
+        — too much time has passed; the topic may legitimately resurface."""
+        from tasks.queue import create_task
+        from tasks import llm_matcher
+        old = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+        existing = Task(
+            id="old-1",
+            title="[PROPOSAL] Reply Jack McGrath - schedule fresh slots",
+            status="done",
+            type="proposal",
+            created=old,
+            completed_at=old,
+        )
+        mock_list.return_value = [existing]
+        monkeypatch.setattr(
+            llm_matcher, "topic_matches_llm",
+            lambda new, candidates, **kw: ["old-1"],
+        )
+        mock_gog.return_value = json.dumps({"task": {"id": "fresh-1"}})
+        tid = create_task(
+            "[PROPOSAL] Reply Jack McGrath again - new opening",
+            type="proposal",
+            source="heartbeat",
+        )
+        assert tid == "fresh-1"
+        mock_gog.assert_called_once()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_user_driven_source_bypasses_llm_dedup(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        """Tasks the user explicitly typed (chat/manual) must not be silently
+        merged into a same-topic predecessor — the user knows what they want."""
+        from tasks.queue import create_task
+        from tasks import llm_matcher
+        existing = Task(
+            id="prop-1",
+            title="[PROPOSAL] Reply Karl",
+            status="pending",
+            type="proposal",
+            created=self._now_iso(),
+        )
+        mock_list.return_value = [existing]
+        called = {"n": 0}
+
+        def fake_matcher(*args, **kwargs):
+            called["n"] += 1
+            return ["prop-1"]
+
+        monkeypatch.setattr(llm_matcher, "topic_matches_llm", fake_matcher)
+        mock_gog.return_value = json.dumps({"task": {"id": "fresh-1"}})
+        tid = create_task(
+            "Karl follow-up - different angle",
+            type="task",
+            source="chat",
+        )
+        # Fresh row created; LLM matcher never invoked for user-driven source.
+        assert tid == "fresh-1"
+        assert called["n"] == 0
+        mock_gog.assert_called_once()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_llm_dedup_skipped_for_result_type(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        """Result cards have their own dedup path (_find_topic_match);
+        the open-topic helper must not interfere."""
+        from tasks.queue import create_task
+        from tasks import llm_matcher
+        called = {"n": 0}
+
+        def fake_matcher(*args, **kwargs):
+            called["n"] += 1
+            return []
+
+        monkeypatch.setattr(llm_matcher, "topic_matches_llm", fake_matcher)
+        mock_list.return_value = []
+        mock_gog.return_value = json.dumps({"task": {"id": "r1"}})
+        tid = create_task("[RESULT] Some result", type="result", source="consumer")
+        assert tid == "r1"
+        # LLM dedup branch is skipped for type=result.
+        assert called["n"] == 0
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_disable_env_var_bypasses_llm_dedup(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        """KLAVA_DISABLE_LLM_DEDUP=1 must short-circuit the LLM path so the
+        system can run without claude CLI in emergencies."""
+        from tasks.queue import create_task
+        from tasks import llm_matcher
+        existing = Task(
+            id="prop-1",
+            title="[PROPOSAL] Reply Karl",
+            status="pending",
+            type="proposal",
+            created=self._now_iso(),
+        )
+        mock_list.return_value = [existing]
+        called = {"n": 0}
+
+        def fake_matcher(*args, **kwargs):
+            called["n"] += 1
+            return ["prop-1"]
+
+        monkeypatch.setattr(llm_matcher, "topic_matches_llm", fake_matcher)
+        monkeypatch.setenv("KLAVA_DISABLE_LLM_DEDUP", "1")
+        mock_gog.return_value = json.dumps({"task": {"id": "fresh-1"}})
+        tid = create_task(
+            "[PROPOSAL] Karl - other topic",
+            type="proposal",
+            source="heartbeat",
+        )
+        assert tid == "fresh-1"
+        assert called["n"] == 0
+
+
 class TestGetRunning:
     def test_finds_running(self):
         tasks = [

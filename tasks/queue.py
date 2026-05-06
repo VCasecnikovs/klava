@@ -595,6 +595,42 @@ def create_task(
                 )
                 return t.id
 
+        # LLM topic dedup: catches paraphrased duplicates that the exact-title
+        # pass above misses, plus same-topic proposals the user already
+        # completed within `done_lookback_hours`. Gated to:
+        #   - automated sources only (user-typed titles via manual/chat/
+        #     deck-continue should not be silently merged)
+        #   - type in {task, proposal} (results have their own dedup path)
+        #   - KLAVA_DISABLE_LLM_DEDUP env unset (emergency bypass)
+        USER_DRIVEN_SOURCES = {"manual", "chat", "deck-continue"}
+        llm_dedup_enabled = (
+            os.environ.get("KLAVA_DISABLE_LLM_DEDUP", "").strip() not in ("1", "true", "yes")
+        )
+        if (
+            llm_dedup_enabled
+            and type in ("task", "proposal")
+            and source not in USER_DRIVEN_SOURCES
+        ):
+            try:
+                match = _find_open_topic_match(
+                    tag_title=title,
+                    type_filter=type,
+                    list_id=lid,
+                )
+            except Exception as e:
+                print(f"[tasks.queue] open topic dedup errored, creating anyway: {e}",
+                      file=sys.stderr)
+                match = None
+            if match is not None:
+                existing_id, mode = match
+                print(
+                    f"[tasks.queue] llm topic dedup ({mode}): {title!r} "
+                    f"matches existing {type} {existing_id}; "
+                    f"returning existing id without creating",
+                    file=sys.stderr,
+                )
+                return existing_id
+
     now = datetime.now(timezone.utc).isoformat()
     fields = {
         "status": status,
@@ -1080,6 +1116,123 @@ def _find_topic_match(
         return (pending_match[0].id, "update")
     if skip_match is not None:
         return (skip_match[0].id, "skip")
+    return None
+
+
+def _find_open_topic_match(
+    tag_title: str,
+    type_filter: str,
+    list_id: Optional[str] = None,
+    pending_lookback_days: int = 30,
+    done_lookback_hours: int = 48,
+    use_llm: bool = True,
+) -> Optional[Tuple[str, str]]:
+    """Find an existing same-topic task of the given type.
+
+    Mirrors `_find_topic_match` (which targets [RESULT] cards) but for
+    open work cards (`type="task"` or `type="proposal"`). Two-stage match:
+    LLM matcher over the candidate set, token-Jaccard fallback if the LLM
+    call fails or is disabled.
+
+    Candidate set:
+      - All `type==type_filter` rows in the list.
+      - Pending rows kept if `created` is within `pending_lookback_days`.
+      - Completed rows kept if `completed_at` is within `done_lookback_hours`.
+
+    Returns `(existing_id, mode)` where mode is:
+      - "reuse": pending row on the same topic; caller should return its id
+                 instead of creating a duplicate.
+      - "skip":  recently-completed row on the same topic; user already
+                 acted, so don't recreate. (Caller still gets the existing
+                 id back so its return type stays uniform.)
+    Returns None when nothing matches.
+
+    Why this exists: the rejection-only dedup in `create_proposal` plus the
+    exact-title dedup in `create_task` miss two common patterns:
+      1. Heartbeat regenerates a paraphrased proposal each cycle ("Reply
+         Karl Fisox - clarify code deal" vs "Karl - which unlicensed code
+         deal" — different titles, same topic, both pile up).
+      2. The user completes a proposal (acts on it, marks done) and the
+         next heartbeat resurrects it because nothing remembers the action
+         was taken.
+    """
+    try:
+        existing = list_tasks(list_id=list_id, include_completed=True)
+    except Exception as e:
+        print(f"[tasks.queue] open topic dedup read failed: {e}",
+              file=sys.stderr)
+        return None
+
+    now = datetime.now(timezone.utc)
+    pending_cutoff = now - timedelta(days=pending_lookback_days)
+    done_cutoff = now - timedelta(hours=done_lookback_hours)
+
+    candidates: List[Tuple[Task, str]] = []  # (task, "pending"|"done")
+    for t in existing:
+        if t.type != type_filter:
+            continue
+        # Rejected proposals are tracked separately in rejected_proposals.jsonl
+        # and `is_recently_rejected()` already gates against them; skip here
+        # so a rejected card isn't treated as a "skip" signal.
+        if (t.proposal_status or "") == "rejected":
+            continue
+        ts_str = None
+        is_done = t.status in ("done", "skipped")
+        if is_done:
+            ts_str = t.completed_at or t.created
+        else:
+            ts_str = t.created
+        if not ts_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if is_done:
+            if ts < done_cutoff:
+                continue
+            candidates.append((t, "done"))
+        else:
+            if ts < pending_cutoff:
+                continue
+            candidates.append((t, "pending"))
+
+    if not candidates:
+        return None
+
+    matched_ids: set = set()
+    if use_llm:
+        try:
+            from tasks.llm_matcher import topic_matches_llm
+            llm_pairs = [(t.id, t.title or "") for t, _ in candidates]
+            matched_ids = set(topic_matches_llm(tag_title, llm_pairs))
+        except Exception as e:
+            print(f"[tasks.queue] llm_matcher unavailable for open dedup, "
+                  f"falling back to token similarity: {e}", file=sys.stderr)
+            matched_ids = set()
+
+    if not matched_ids:
+        for t, _ in candidates:
+            if _topic_similar(tag_title, t.title or ""):
+                matched_ids.add(t.id)
+
+    if not matched_ids:
+        return None
+
+    pending_match: Optional[Task] = None
+    skip_match: Optional[Task] = None
+    for t, kind in candidates:
+        if t.id not in matched_ids:
+            continue
+        if kind == "pending" and pending_match is None:
+            pending_match = t
+        elif kind == "done" and skip_match is None:
+            skip_match = t
+
+    if pending_match is not None:
+        return (pending_match.id, "reuse")
+    if skip_match is not None:
+        return (skip_match.id, "skip")
     return None
 
 

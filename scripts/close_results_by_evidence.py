@@ -1,6 +1,7 @@
-"""Evidence-driven [RESULT] auto-close runner.
+"""Evidence-driven auto-close runner.
 
-Walks every pending RESULT card on the Deck, asks the evidence_closer
+Walks every pending card on the Deck of the requested types
+(default `result`, can include `proposal`), asks the evidence_closer
 whether vadimgest contains evidence the user already acted on it, and
 either prints what it would do (`--dry-run`) or actually closes
 (`--apply`).
@@ -9,8 +10,9 @@ Default is `--dry-run`. Apply only after reviewing dry-run output.
 
 The runner emits a digest [RESULT] card on the Deck so the user can
 see the closure decisions without watching a log file. The digest is
-published with `digest=True`, `source="evidence-closer"`, so it
-auto-supersedes the prior digest each run.
+published with `digest=True`, `source=f"evidence-closer-{types}"`, so
+runs over different type sets supersede their own prior digests rather
+than each other (proposal-runs don't clobber result-runs).
 """
 
 from __future__ import annotations
@@ -29,6 +31,9 @@ def _ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
+_VALID_TYPES = ("result", "proposal", "task")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     grp = ap.add_mutually_exclusive_group()
@@ -37,9 +42,14 @@ def main() -> int:
     grp.add_argument("--apply", action="store_true",
                      help="Close cards with evidence; write digest card.")
     ap.add_argument("--limit", type=int, default=200,
-                    help="Max pending RESULT cards to evaluate.")
+                    help="Max pending cards to evaluate.")
     ap.add_argument("--no-digest", action="store_true",
                     help="Skip writing the summary digest card to the Deck.")
+    ap.add_argument("--types", type=str, default="result",
+                    help=("Comma-separated card types to evaluate. "
+                          f"Valid: {','.join(_VALID_TYPES)}. Default: result. "
+                          "For proposals, evidence-driven closure means the user "
+                          "already actioned it on a real channel."))
     args = ap.parse_args()
 
     apply_mode = bool(args.apply)
@@ -47,15 +57,28 @@ def main() -> int:
         # default is dry-run
         args.dry_run = True
 
+    types = tuple(
+        t.strip() for t in (args.types or "").split(",") if t.strip()
+    )
+    bad = [t for t in types if t not in _VALID_TYPES]
+    if bad:
+        print(f"error: unknown --types value(s) {bad}; "
+              f"valid: {_VALID_TYPES}", file=sys.stderr)
+        return 2
+    if not types:
+        types = ("result",)
+    types_label = ",".join(types)
+
     lid = _list_id()
     tasks = list_tasks(list_id=lid, include_completed=False)
     pending_results = [
         t for t in tasks
-        if t.type == "result" and t.status == "pending"
+        if t.type in types and t.status == "pending"
     ][: args.limit]
 
-    print(f"=== EVIDENCE CLOSER {_ts()} — {'APPLY' if apply_mode else 'DRY-RUN'} ===")
-    print(f"pending [RESULT] cards: {len(pending_results)}")
+    print(f"=== EVIDENCE CLOSER {_ts()} — types={types_label} "
+          f"{'APPLY' if apply_mode else 'DRY-RUN'} ===")
+    print(f"pending cards: {len(pending_results)}")
     print()
 
     decisions: list[ClosureDecision] = []
@@ -112,7 +135,7 @@ def main() -> int:
 
     if not args.no_digest:
         try:
-            _write_digest_card(decisions, apply_mode)
+            _write_digest_card(decisions, apply_mode, types_label)
         except Exception as e:
             print(f"[digest] failed to write digest card: {e}", file=sys.stderr)
 
@@ -125,18 +148,22 @@ def _build_full_notes(card, new_body: str) -> str:
     return card.to_notes()
 
 
-def _write_digest_card(decisions: list, apply_mode: bool) -> None:
+def _write_digest_card(decisions: list, apply_mode: bool,
+                       types_label: str = "result") -> None:
     closed = [d for d in decisions if d.decision == "close"]
     skipped = [d for d in decisions if d.decision == "skip-no-evidence"]
     digest_marked = [d for d in decisions if d.decision == "skip-not-actionable"]
 
     mode_label = "applied" if apply_mode else "dry-run"
-    title = f"Klava evidence-closer ({mode_label}) — {datetime.now(timezone.utc).strftime('%b %d %H:%M UTC')}"
+    title = (
+        f"Klava evidence-closer [{types_label}] ({mode_label}) — "
+        f"{datetime.now(timezone.utc).strftime('%b %d %H:%M UTC')}"
+    )
 
     lines = [
         "#result",
         "",
-        f"## Summary",
+        f"## Summary (types={types_label})",
         f"- Closed: **{len(closed)}**" + (" (applied)" if apply_mode else " (would close)"),
         f"- Skipped (no evidence yet): {len(skipped)}",
         f"- Marked digest-class: {len(digest_marked)}",
@@ -155,12 +182,15 @@ def _write_digest_card(decisions: list, apply_mode: bool) -> None:
             lines.append(f"- `{d.card_id[:14]}` {d.card_title}")
         lines.append("")
 
+    # Source carries the types_label so a proposal-only run doesn't supersede
+    # the result-only run's digest (and vice versa). Each type-set keeps its
+    # own digest history on the Deck.
     create_result(
         parent_task_id=None,
         title=title,
         body="\n".join(lines),
         priority="low",
-        source="evidence-closer",
+        source=f"evidence-closer-{types_label}",
         digest=True,
     )
 
