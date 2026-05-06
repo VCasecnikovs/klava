@@ -894,7 +894,6 @@ export function DeckTab() {
   const [processed, setProcessed] = useState<Set<string>>(new Set());
   const [shufflePenalty, setShufflePenalty] = useState<Map<string, number>>(new Map());
   const [exiting, setExiting] = useState<CardAction | null>(null);
-  const [busy, setBusy] = useState(false);
   const [filters, setFiltersState] = useState<DeckFilters>(loadFilters);
   // Keyboard shortcut channel for comment-popover buttons. Each keypress bumps
   // `tick` so a stale signal can't re-fire and repeated presses re-open.
@@ -948,6 +947,20 @@ export function DeckTab() {
 
   const current = openTasks[0];
 
+  // Roll back an optimistic advance() when the backend call fails. Drops the
+  // card from `processed` (so it reappears via refetch) and clears any active
+  // exit animation so the user can retry without a stale guard.
+  const rollback = useCallback((id: string) => {
+    if (exitTimer.current) clearTimeout(exitTimer.current);
+    setExiting(null);
+    setProcessed(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
   const advance = useCallback((action: CardAction, id: string) => {
     setExiting(action);
     exitTimer.current = setTimeout(() => {
@@ -969,7 +982,11 @@ export function DeckTab() {
   }, []);
 
   const handleAction = useCallback(async (action: CardAction) => {
-    if (!current || busy) return;
+    // `exiting` is a 220ms-lived guard that prevents double-action on the
+    // same card during its exit animation. Once it clears, the next card is
+    // already current and independently actionable — even if the previous
+    // card's backend call is still in flight.
+    if (!current || exiting) return;
     const id = current.id;
     const isGTask = id.startsWith('gtask_');
     const isGhIssue = id.startsWith('gh_');
@@ -980,12 +997,11 @@ export function DeckTab() {
 
     try {
       if (action === 'approve') {
-        setBusy(true);
-        await api.klavaApprove(id);
         advance(action, id);
-        setTimeout(() => refetch(), 260);
+        await api.klavaApprove(id);
+        refetch();
       } else if (action === 'reject') {
-        setBusy(true);
+        advance(action, id);
         if (isProposal(current)) {
           await api.klavaReject(id, '');
         } else if (isKlava) {
@@ -993,21 +1009,19 @@ export function DeckTab() {
         } else if (isGTask) {
           await api.updateTask(id, 'cancel');
         }
-        advance(action, id);
-        setTimeout(() => refetch(), 260);
+        refetch();
       } else if (action === 'done') {
-        setBusy(true);
+        advance(action, id);
         if (isKlava) {
           await api.klavaComplete(id);
         } else if (isGTask) {
           await api.updateTask(id, 'done');
         }
-        advance(action, id);
-        setTimeout(() => refetch(), 260);
+        refetch();
       } else if (action === 'skip') {
         // User expectation: skip closes the card in GTasks too, not just
         // locally on the Deck. Klava + inbox cards both route to completion.
-        setBusy(true);
+        advance(action, id);
         try {
           if (isKlava) {
             await api.klavaComplete(id);
@@ -1018,8 +1032,7 @@ export function DeckTab() {
           console.error('skip backend close failed:', e);
           alert(`Skip failed: ${(e as Error).message}`);
         }
-        advance(action, id);
-        setTimeout(() => refetch(), 260);
+        refetch();
       } else if (action === 'snooze') {
         // Snooze goes through the chooser → handleSnooze(days). This branch
         // catches keyboard-press fallthrough (which we no longer support) and
@@ -1086,19 +1099,18 @@ export function DeckTab() {
     } catch (e) {
       console.error('Deck action failed:', e);
       alert(`${action} failed: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
+      rollback(id);
+      refetch();
     }
-  }, [current, busy, advance, refetch, openAll]);
+  }, [current, exiting, advance, rollback, refetch, openAll]);
 
   const handleContinue = useCallback(async (mode: ContinueMode, comment: string) => {
-    if (!current || busy) return;
+    if (!current || exiting) return;
     const id = current.id;
     try {
-      setBusy(true);
       if (mode === 'reject-result') {
-        await api.klavaRejectResult(id, comment);
         advance('reject', id);
+        await api.klavaRejectResult(id, comment);
       } else if (mode === 'delegate' || mode === 'proposal') {
         // Delegate: Klava runs the task; the dispatched [ACTION] row morphs
         //   into a [RESULT] card in place on completion (consumer.mark_done
@@ -1132,6 +1144,7 @@ export function DeckTab() {
           : `\n\n## Instructions\nDon't execute — propose. Research context first (Obsidian, vadimgest, Hlopya). Then draft a concrete proposal.\n\nYour FINAL message becomes the proposal plan. The consumer will convert this task in place into a [PROPOSAL] card on the Deck (same GTask id, new title + body) awaiting my Execute / Refine / Reject. Do NOT call \`create_proposal\` — just make the final message the plan. Cover: what to do, why now, key risks, the concrete first step. Keep it tight — one screen, not an essay.`;
         const prompt = `${context}${tipsSection}${instructions}`;
         const titlePrefix = mode === 'delegate' ? '[ACTION]' : '[RESEARCH]';
+        advance('done', id);
         await api.klavaCreate(`${titlePrefix} ${plainTitle}`, prompt, 'medium', true);
         // Mark the source GTask done so the Deck shows only the eventual
         // RESULT / PROPOSAL card, not both. If this fails we still advance
@@ -1147,47 +1160,45 @@ export function DeckTab() {
         } catch (e) {
           console.warn('Source card completion failed after delegate/proposal dispatch:', e);
         }
-        advance('done', id);
       } else {
-        await api.klavaContinue(id, mode, comment);
         // For 'research-more', the backend also rejects the current proposal
         // so the Deck replaces this card with the refined one on refetch.
         // For 'execute' and 'follow-up', the card stays open until user
         // explicitly closes it — the new task lands as a peer on the Deck.
         const exitAs: CardAction = mode === 'research-more' ? 'reject' : 'done';
         advance(exitAs, id);
+        await api.klavaContinue(id, mode, comment);
       }
-      setTimeout(() => refetch(), 260);
+      refetch();
     } catch (e) {
       console.error(`Continue (${mode}) failed:`, e);
       alert(`${mode} failed: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
+      rollback(id);
+      refetch();
     }
-  }, [current, busy, advance, refetch]);
+  }, [current, exiting, advance, rollback, refetch]);
 
   const handleSnooze = useCallback(async (days: number) => {
-    if (!current || busy) return;
+    if (!current || exiting) return;
     const id = current.id;
     const isGTask = id.startsWith('gtask_');
     const isGhIssue = id.startsWith('gh_');
     const isKlava = !isGTask && !isGhIssue;
     try {
-      setBusy(true);
+      advance('snooze', id);
       if (isGTask) {
         await api.updateTask(id, 'postpone', '', days);
       } else if (isKlava) {
         await api.klavaPostpone(id, days);
       }
-      advance('snooze', id);
-      setTimeout(() => refetch(), 260);
+      refetch();
     } catch (e) {
       console.error('Snooze failed:', e);
       alert(`Snooze failed: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
+      rollback(id);
+      refetch();
     }
-  }, [current, busy, advance, refetch]);
+  }, [current, exiting, advance, rollback, refetch]);
 
   const handleLaunch = useCallback(async () => {
     if (!current) return;
