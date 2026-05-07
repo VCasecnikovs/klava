@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-06T23:44:05.363027+00:00",
+  "last_run": "2026-05-07T00:13:17.340621Z",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -123,7 +123,14 @@
     "calendar-vox-sync-may20": "2026-05-06T23:14:38.876680+00:00",
     "lev-ssh-2026-05-06": "2026-05-06T23:44:05.363194+00:00",
     "dominik-seabed-2026-05-06": "2026-05-06T23:44:05.363196+00:00",
-    "eagle-alpha-approved-2026-05-06": "2026-05-06T23:44:05.363197+00:00"
+    "eagle-alpha-approved-2026-05-06": "2026-05-06T23:44:05.363197+00:00",
+    "obsidian:Vox Lab/Deals/Wallet (TON)/drafts/2026-05-06 - Maksim text-quality samples.md": "2026-05-07T00:13:17.340829Z",
+    "obsidian:Project Ocean/Research/Seabed Minerals - Resources and Tech.md": "2026-05-07T00:13:17.340829Z",
+    "obsidian:Project Ocean/Research/Seabed Minerals - Legal and Industry.md": "2026-05-07T00:13:17.340829Z",
+    "gtask:PROPOSAL Reply Dominik Diak \u2014 seabed mining + Project Ocean angle": "2026-05-07T00:13:17.340829Z",
+    "gtask:Add Vadim SSH key to Silent Speech server": "2026-05-07T00:13:17.340829Z",
+    "gtask:PROPOSAL Wallet \u2014 send Maksim 8 anonymized text samples": "2026-05-07T00:13:17.340829Z",
+    "gtask:PROPOSAL Reply Lev (Signal): clarify Klava cant add key to H100": "2026-05-07T00:13:17.340829Z"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
