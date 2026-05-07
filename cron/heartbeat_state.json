@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-07T01:42:41.842108+00:00",
+  "last_run": "2026-05-07T02:11:55.530151+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -135,7 +135,10 @@
     "lev_chizhov_ssh_cluster_2026-05-07": "2026-05-07T01:42:41.842308+00:00",
     "dima_abramov_price_confirm_2026-05-07": "2026-05-07T01:42:41.842308+00:00",
     "dayflow_project_ocean_2026-05-06": "2026-05-07T01:42:41.842308+00:00",
-    "gmail_bigquery_deprecation_2026-05-07": "2026-05-07T01:42:41.842308+00:00"
+    "gmail_bigquery_deprecation_2026-05-07": "2026-05-07T01:42:41.842308+00:00",
+    "shawn-signal-may7-stem-mining": "2026-05-07T02:11:55.530369+00:00",
+    "dayflow-mining-dshmra": "2026-05-07T02:11:55.530372+00:00",
+    "gmail-xads-declined": "2026-05-07T02:11:55.530374+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
