@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-07T16:46:56.057330+00:00",
+  "last_run": "2026-05-07T20:11:21.852787+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -170,7 +170,12 @@
     "obsidian-joni-rakipi-created-may7": "2026-05-07T16:46:56.057330+00:00",
     "gmail-emily-substack-may7": "2026-05-07T16:46:56.057330+00:00",
     "whatsapp-vadims-selfchat-may7": "2026-05-07T16:46:56.057330+00:00",
-    "dayflow-dima-ocean-call-may7": "2026-05-07T16:46:56.057330+00:00"
+    "dayflow-dima-ocean-call-may7": "2026-05-07T16:46:56.057330+00:00",
+    "hb_lev_signal_0507": "2026-05-07T20:11:21.852787+00:00",
+    "hb_dima_abramov_0507": "2026-05-07T20:11:21.852787+00:00",
+    "hb_dima_grably_call_0507": "2026-05-07T20:11:21.852787+00:00",
+    "hb_perfecto_0507": "2026-05-07T20:11:21.852787+00:00",
+    "hb_astrum_commits_0507": "2026-05-07T20:11:21.852787+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
