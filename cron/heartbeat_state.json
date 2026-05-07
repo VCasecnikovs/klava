@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-07T07:42:36.642598+00:00",
+  "last_run": "2026-05-07T16:13:50.975752+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -150,7 +150,17 @@
     "dayflow-ocean-lev-may7": "2026-05-07T07:11:49.393598+00:00",
     "whatsapp-semya-may7-header": "2026-05-07T07:11:49.393600+00:00",
     "obsidian-blake-plateau-may4": "2026-05-07T07:11:49.393602+00:00",
-    "dayflow_project_ocean_commercial": "2026-05-07T07:42:36.642777+00:00"
+    "dayflow_project_ocean_commercial": "2026-05-07T07:42:36.642777+00:00",
+    "gmail_dima_catch_up_accepted_may7": "2026-05-07T16:13:50.975891+00:00",
+    "gmail_ilja_accepted_6pm_may7": "2026-05-07T16:13:50.975891+00:00",
+    "gmail_backblaze_suspended": "2026-05-07T16:13:50.975891+00:00",
+    "gmail_dominik_joni_intro": "2026-05-07T16:13:50.975891+00:00",
+    "whatsapp_semya_tashkent_may7": "2026-05-07T16:13:50.975891+00:00",
+    "whatsapp_dominik_seabed_reply": "2026-05-07T16:13:50.975891+00:00",
+    "linkedin_kamron_usmanov": "2026-05-07T16:13:50.975891+00:00",
+    "obsidian_project_ocean_market_sizing": "2026-05-07T16:13:50.975891+00:00",
+    "github_astrum_commits_may7": "2026-05-07T16:13:50.975891+00:00",
+    "github_vox_harbor_leadgen_may7": "2026-05-07T16:13:50.975891+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
@@ -164,8 +174,8 @@
       "attendees": []
     },
     "cal_vadims_ia2aeogsv": {
-      "title": "Ilmoi <> Vadims",
-      "start": "2026-05-07T12:30",
+      "title": "Ilmoi <> Vadims (confirmed 6:30pm PDT)",
+      "start": "2026-05-07T18:30",
       "attendees": []
     },
     "cal_casecnikov_cgdu0": {
