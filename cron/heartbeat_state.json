@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-08T16:56:22.817694+00:00",
+  "last_run": "2026-05-08T17:30:32.016322+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -215,7 +215,16 @@
     "roland-astrum-13-commits-may8": "2026-05-08T19:49:00+00:00",
     "erik-bernard-cannes-may8": "2026-05-08T19:49:00+00:00",
     "github-astrum-commits-may8": "2026-05-08T19:49:00+00:00",
-    "eagle-alpha-yashas-followup-may8": "2026-05-08T19:49:00+00:00"
+    "eagle-alpha-yashas-followup-may8": "2026-05-08T19:49:00+00:00",
+    "dima-abramov-call-may8-hlopya": "2026-05-08T17:30:32.016639+00:00",
+    "voxdev-amazon-20m-promise-may8": "2026-05-08T17:30:32.016641+00:00",
+    "dima-abramov-signal-may8-wishlist": "2026-05-08T17:30:32.016642+00:00",
+    "gtasks-do-payment-result-may8-seen": "2026-05-08T17:30:32.016643+00:00",
+    "gtasks-synoptic-proposal-may8-seen": "2026-05-08T17:30:32.016644+00:00",
+    "gmail-facebook-suggestion-may8": "2026-05-08T17:30:32.016645+00:00",
+    "obsidian-astrum-may8-seen": "2026-05-08T17:30:32.016646+00:00",
+    "obsidian-erik-bernard-may8-seen": "2026-05-08T17:30:32.016648+00:00",
+    "dayflow-dima-subway-may8": "2026-05-08T17:30:32.016649+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
