@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-08T18:28:04.332326+00:00",
+  "last_run": "2026-05-08T19:25:52.282972+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -224,7 +224,12 @@
     "gmail-facebook-suggestion-may8": "2026-05-08T17:30:32.016645+00:00",
     "obsidian-astrum-may8-seen": "2026-05-08T17:30:32.016646+00:00",
     "obsidian-erik-bernard-may8-seen": "2026-05-08T17:30:32.016648+00:00",
-    "dayflow-dima-subway-may8": "2026-05-08T17:30:32.016649+00:00"
+    "dayflow-dima-subway-may8": "2026-05-08T17:30:32.016649+00:00",
+    "signal_lev_chizhov_20260508": "2026-05-08T19:25:52.282972+00:00",
+    "signal_vox_sci_20260508": "2026-05-08T19:25:52.282972+00:00",
+    "hlopya_ilya_pyatnitskiy_neuroware_20260508": "2026-05-08T19:25:52.282972+00:00",
+    "whatsapp_toms_20260508": "2026-05-08T19:25:52.282972+00:00",
+    "gmail_helius_renewal_20260508": "2026-05-08T19:25:52.282972+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
