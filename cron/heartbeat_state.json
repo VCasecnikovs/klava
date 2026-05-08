@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-08T21:53:52.922750+00:00",
+  "last_run": "2026-05-08T22:25:22.574704+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -240,7 +240,12 @@
     "dayflow_ocean_grafana_2026-05-08": "2026-05-08T21:53:52.922953+00:00",
     "dayflow_ocean_ssi_2026-05-08": "2026-05-08T21:53:52.922955+00:00",
     "obsidian_resource_map_2026-05-08": "2026-05-08T21:53:52.922956+00:00",
-    "github_mamamia777_pr462": "2026-05-08T21:53:52.922958+00:00"
+    "github_mamamia777_pr462": "2026-05-08T21:53:52.922958+00:00",
+    "hlopya-shawn-book-sourcing-pricing-2026-05-08": "2026-05-08T22:25:22.575098",
+    "signal-shawn-call-confirmed-2026-05-08": "2026-05-08T22:25:22.575112",
+    "whatsapp-padel-wine-festival-may30": "2026-05-08T22:25:22.575123",
+    "dayflow-subway-surfers-2026-05-08": "2026-05-08T22:25:22.575132",
+    "obsidian-meeting-book-sourcing-2026-05-08": "2026-05-08T22:25:22.575141"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
