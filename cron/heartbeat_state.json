@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-08T00:18:06.501349+00:00",
+  "last_run": "2026-05-08T00:46:30.559515+00:00",
   "checkpoint": "committed",
   "reported": {
     "signal-dima-ayush-isbn-2026-05-05": "2026-05-05T07:10:46.134123",
@@ -188,7 +188,8 @@
     "karl-sick-api-explorer-2026-05-08": "2026-05-08T00:18:06.501563+00:00",
     "vox-lab-dev-deploy-format-2026-05-08": "2026-05-08T00:18:06.501569+00:00",
     "gmail-newsletters-2026-05-08": "2026-05-08T00:18:06.501570+00:00",
-    "gtasks-ilja-debrief-2026-05-08": "2026-05-08T00:18:06.501572+00:00"
+    "gtasks-ilja-debrief-2026-05-08": "2026-05-08T00:18:06.501572+00:00",
+    "arto-bendiken-signal-hcpp17-links-2026-05-08": "2026-05-08T00:46:30.559677+00:00"
   },
   "seen_cal_events": {
     "cal_vadims_65bnt5h6e": {
