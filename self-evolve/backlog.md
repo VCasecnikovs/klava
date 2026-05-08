@@ -5,14 +5,30 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 170
-- Items fixed (30d): 88
+- Items added (30d): 172
+- Items fixed (30d): 90
 - Avg days open: 0
-- Last run: 2026-05-06
+- Last run: 2026-05-08
 
 ---
 
 ## Items
+
+### [2026-05-08] self-evolve timeout 2700→3600s - kept timing out on complex days
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Previous run (2026-05-08) timed out at 2742s vs 2700s limit. This is the 3rd timeout in the job's history (1800→2700 was the last bump). Complex backlog days with many open items consistently push past 45 min.
+- **resolved:** 2026-05-08 Bumped timeout_seconds 2700→3600 in cron/jobs.json. Gives 60 min ceiling.
+
+### [2026-05-08] pulse timeout 1800→2700s - failed twice past the 30 min limit
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Pulse ran 1886s (> 1800s limit) and got killed. Also had a stream idle timeout at 1338s. Pattern: API slowdowns push pulse past 30 min on heavy X/HN fetch days.
+- **resolved:** 2026-05-08 Bumped pulse timeout_seconds 1800→2700 in cron/jobs.json.
 
 ### [2026-05-06] MEMORY.md over 200-line limit - context truncated every session
 - **source:** self-evolve CRON analysis
