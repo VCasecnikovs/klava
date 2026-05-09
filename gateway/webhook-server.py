@@ -42,7 +42,7 @@ from flask_socketio import SocketIO, emit, Namespace
 
 # Add lib to path
 sys.path.insert(0, str(Path(__file__).parent))
-from lib.claude_executor import ClaudeExecutor
+from lib.claude_executor import ClaudeExecutor, _proxy_env_for_model
 from lib.session_registry import register_session
 from lib.process_reaper import start_reaper_thread
 
@@ -87,6 +87,13 @@ _COMMS_BASH_PATTERNS = [
     ("signal-cli -a", "Signal"),
     ("wacli send", "WhatsApp"),
 ]
+
+
+def _chat_model_and_betas(model: str | None) -> tuple[str | None, list[str] | None]:
+    """Resolve dashboard model selector into SDK model and beta flags."""
+    if model and "[1m]" in model and not _proxy_env_for_model(model):
+        return model.replace("[1m]", ""), ["context-1m-2025-08-07"]
+    return model, None
 
 
 def _detect_outbound_comms(tool_name: str, input_data: dict) -> dict | None:
@@ -1528,6 +1535,9 @@ class ChatNamespace(Namespace):
         nvm_bin = str(_gateway_config.node_bin())
         brew_bin = str(_gateway_config.homebrew_bin())
         env["PATH"] = f"{local_bin}:{nvm_bin}:{brew_bin}:/usr/local/bin:/usr/bin:/bin"
+        # Route gpt-* / kimi-* / k2.* models through the local claude-code-proxy
+        # so the SDK subprocess talks to ChatGPT-Codex / Kimi instead of Anthropic.
+        env.update(_proxy_env_for_model(model))
         perm_mode = "plan" if mode == "plan" else "bypassPermissions"
 
         # AskUserQuestion + ExitPlanMode support: use can_use_tool callback to
@@ -1619,11 +1629,7 @@ class ChatNamespace(Namespace):
             # Auto-allow all other tools
             return PermissionResultAllow(updated_input=input_data)
 
-        # Parse 1M context flag from model string (e.g. "opus[1m]" -> model="opus", betas=[...])
-        chat_betas = None
-        if model and "[1m]" in model:
-            model = model.replace("[1m]", "")
-            chat_betas = ["context-1m-2025-08-07"]
+        model, chat_betas = _chat_model_and_betas(model)
 
         # Map UI effort → SDK thinking / effort kwargs.
         #

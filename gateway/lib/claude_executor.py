@@ -59,6 +59,43 @@ def _resolve_max_buffer_size() -> int:
     return value if value > 0 else _DEFAULT_SDK_MAX_BUFFER_SIZE
 
 
+# Local proxy that translates Anthropic /v1/messages -> ChatGPT/Codex Responses
+# API using OAuth tokens from `claude-code-proxy codex auth login`. When the
+# selected model is a GPT/Kimi id, we point the SDK at the proxy via the
+# standard ANTHROPIC_* env vars; the SDK pipes them to the spawned `claude`
+# subprocess (works because we already pin cli_path to the system binary).
+# Background: see PR adding GPT-via-Codex-subscription routing.
+_PROXY_HOST = os.environ.get("CLAUDE_CODE_PROXY_URL", "http://127.0.0.1:18765")
+_PROXY_SMALL_FAST_DEFAULT = os.environ.get(
+    "CLAUDE_CODE_PROXY_SMALL_FAST_MODEL", "gpt-5.4-mini[1m]"
+)
+_PROXY_MAX_OUTPUT_TOKENS = os.environ.get(
+    "CLAUDE_CODE_PROXY_MAX_OUTPUT_TOKENS", "128000"
+)
+
+
+def _proxy_env_for_model(model: Optional[str]) -> Dict[str, str]:
+    """Return env overrides that route the SDK through claude-code-proxy.
+
+    Empty dict for native Anthropic models. Triggered by gpt-* / kimi-* /
+    k2.* prefixes (the providers claude-code-proxy currently exposes).
+    """
+    if not model:
+        return {}
+    head = model.lower()
+    if not (head.startswith("gpt-") or head.startswith("kimi-") or head.startswith("k2.")):
+        return {}
+    return {
+        "ANTHROPIC_BASE_URL": _PROXY_HOST,
+        "ANTHROPIC_AUTH_TOKEN": "unused",
+        "ANTHROPIC_MODEL": model,
+        "ANTHROPIC_SMALL_FAST_MODEL": _PROXY_SMALL_FAST_DEFAULT,
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": _PROXY_MAX_OUTPUT_TOKENS,
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
+    }
+
+
 class ClaudeExecutor:
     """Execute Claude commands via Agent SDK (streaming mode)."""
 
@@ -141,6 +178,9 @@ class ClaudeExecutor:
                 env_vars["USER"] = getpass.getuser()
             except Exception:
                 pass
+        # Route to claude-code-proxy when model is a GPT/Kimi id so the same
+        # `claude` CLI talks to ChatGPT/Codex via the local translator.
+        env_vars.update(_proxy_env_for_model(opts.get("model")))
         if env_vars:
             opts["env"] = env_vars
 

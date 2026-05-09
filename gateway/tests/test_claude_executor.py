@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from lib.claude_executor import ClaudeExecutor, MCP_CONFIG
+from lib.claude_executor import ClaudeExecutor, MCP_CONFIG, _proxy_env_for_model
 
 
 class TestBuildOptions:
@@ -86,6 +86,27 @@ class TestBuildOptions:
         with _patch.dict(os.environ, {"CLAUDE_SDK_MAX_BUFFER_SIZE": "not-a-number"}):
             opts = self.executor._build_options()
             assert opts.max_buffer_size >= 8 * 1024 * 1024
+
+    def test_proxy_models_raise_child_output_ceiling(self):
+        env = _proxy_env_for_model("gpt-5.5[1m]")
+        assert env["ANTHROPIC_BASE_URL"].startswith("http://127.0.0.1:")
+        assert env["ANTHROPIC_MODEL"] == "gpt-5.5[1m]"
+        assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "128000"
+
+    def test_proxy_output_ceiling_env_override(self):
+        from unittest.mock import patch as _patch
+        with _patch.dict(os.environ, {"CLAUDE_CODE_PROXY_MAX_OUTPUT_TOKENS": "96000"}):
+            import importlib
+            import lib.claude_executor as ce
+            reloaded = importlib.reload(ce)
+            try:
+                env = reloaded._proxy_env_for_model("gpt-5.5[1m]")
+                assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "96000"
+            finally:
+                importlib.reload(ce)
+
+    def test_native_models_keep_default_output_ceiling(self):
+        assert _proxy_env_for_model("opus[1m]") == {}
 
 
 class TestExecutorInit:

@@ -1102,6 +1102,22 @@ class TestOnSendMessage:
                             assert call_args[1]["args"][6] == "bypass"  # mode
 
 
+class TestChatModelAndBetas:
+    """Tests for dashboard model selector normalization."""
+
+    def test_native_one_million_selector_uses_anthropic_beta(self, flask_app_module):
+        model, betas = flask_app_module._chat_model_and_betas("opus[1m]")
+        assert model == "opus"
+        assert betas == ["context-1m-2025-08-07"]
+
+    def test_proxy_one_million_model_keeps_full_upstream_id(self, flask_app_module):
+        # Regression: 2026-05-08 dashboard Chat stripped "[1m]" from
+        # gpt-5.5[1m], so claude-code-proxy received unsupported gpt-5.5.
+        model, betas = flask_app_module._chat_model_and_betas("gpt-5.5[1m]")
+        assert model == "gpt-5.5[1m]"
+        assert betas is None
+
+
 # ── on_queue_remove ─────────────────────────────────────────────────
 
 
