@@ -53,8 +53,8 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // True when user has typed but debounced save hasn't fired yet
   const localDirtyRef = useRef(false);
-  // Set to true right after send to block one stale draft_sync from restoring old text
-  const justSentRef = useRef(false);
+  // Set after send to block stale draft_sync/chat_state_sync from restoring old text.
+  const justSentDraftKeyRef = useRef<string | null>(null);
 
   // Load draft when session changes
   useEffect(() => {
@@ -77,7 +77,7 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
   // arrive and restore the just-cleared input.
   useEffect(() => {
     if (localDirtyRef.current) return;
-    if (justSentRef.current) { justSentRef.current = false; return; }
+    if (draftKey && justSentDraftKeyRef.current === draftKey) return;
     if (draftKey && state.drafts[draftKey] !== undefined) {
       setLocalDraft(prev => {
         const server = state.drafts[draftKey] || '';
@@ -91,12 +91,14 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
   const saveDraft = useCallback((text: string, key?: string) => {
     const k = key || draftKeyRef.current;
     if (!k) return;
+    if (text) justSentDraftKeyRef.current = null;
+    dispatch({ type: 'SET_DRAFT', sessionId: k, text });
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       localDirtyRef.current = false;
       socketRef.current?.emit('draft_save', { session_id: k, text });
     }, 500);
-  }, [socketRef]);
+  }, [dispatch, socketRef]);
 
   // --- Skill autocomplete ---
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -244,10 +246,11 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
 
     setLocalDraft('');
     localDirtyRef.current = false;
-    justSentRef.current = true;
+    justSentDraftKeyRef.current = draftKeyRef.current;
     if (draftKeyRef.current) {
       // Flush: clear draft on server immediately
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      dispatch({ type: 'SET_DRAFT', sessionId: draftKeyRef.current, text: '' });
       socketRef.current?.emit('draft_save', { session_id: draftKeyRef.current, text: '' });
     }
     if (inputRef.current) inputRef.current.style.height = 'auto';
