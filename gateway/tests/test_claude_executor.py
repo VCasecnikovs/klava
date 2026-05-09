@@ -92,6 +92,7 @@ class TestBuildOptions:
         assert env["ANTHROPIC_BASE_URL"].startswith("http://127.0.0.1:")
         assert env["ANTHROPIC_MODEL"] == "gpt-5.5[1m]"
         assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "128000"
+        assert "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK" not in env
 
     def test_proxy_output_ceiling_env_override(self):
         from unittest.mock import patch as _patch

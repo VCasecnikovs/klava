@@ -92,7 +92,6 @@ def _proxy_env_for_model(model: Optional[str]) -> Dict[str, str]:
         "ANTHROPIC_SMALL_FAST_MODEL": _PROXY_SMALL_FAST_DEFAULT,
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": _PROXY_MAX_OUTPUT_TOKENS,
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
     }
 
 
