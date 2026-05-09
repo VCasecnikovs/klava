@@ -5,14 +5,22 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 172
-- Items fixed (30d): 90
+- Items added (30d): 173
+- Items fixed (30d): 91
 - Avg days open: 0
-- Last run: 2026-05-08
+- Last run: 2026-05-09
 
 ---
 
 ## Items
+
+### [2026-05-09] SKILL.md cron stats script used tail-200 and missing failure counting
+- **source:** self-evolve scan
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** The SKILL.md cron data collection script used `tail -200` (too small for 300+ entries/day) and dumped raw records without computing stats. This caused misleading "300 failures" output when used naively (all non-'success' statuses counted as failures, but actual success status is 'completed'). Future runs needed a proper aggregator.
+- **resolved:** 2026-05-09 Changed tail-200 to tail-1000, replaced raw dump with per-job stats aggregator (ok/fail/skip counts, avg/max duration, cost, errors). Failures now only count actual 'failed'/'error'/'timeout' statuses.
 
 ### [2026-05-08] self-evolve timeout 2700→3600s - kept timing out on complex days
 - **source:** self-evolve CRON analysis
