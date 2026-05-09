@@ -1118,6 +1118,77 @@ class TestChatModelAndBetas:
         assert betas is None
 
 
+class TestProxyInputCeiling:
+    """Tests for Codex/Kimi proxy context-window enforcement.
+
+    Regression: 2026-05-08 — switching a fat session to gpt-5.5 deadlocked the
+    chat with "input exceeds the context window of this model" because the CLI
+    subprocess thought GPT-5.5 had 1M context (it's actually 272K input via
+    Codex). Sources: github.com/openai/codex issues #19319, #20761.
+    """
+
+    def test_native_models_have_no_ceiling(self, flask_app_module):
+        assert flask_app_module._proxy_input_ceiling("opus") is None
+        assert flask_app_module._proxy_input_ceiling("opus[1m]") is None
+        assert flask_app_module._proxy_input_ceiling("sonnet[1m]") is None
+        assert flask_app_module._proxy_input_ceiling(None) is None
+
+    def test_gpt_models_capped_below_codex_real_limit(self, flask_app_module):
+        # Codex publishes 272K input but reserves overhead — 250K leaves room.
+        assert flask_app_module._proxy_input_ceiling("gpt-5.5") == 250_000
+        assert flask_app_module._proxy_input_ceiling("gpt-5.5[1m]") == 250_000
+        assert flask_app_module._proxy_input_ceiling("gpt-5.4") == 250_000
+        assert flask_app_module._proxy_input_ceiling("gpt-5.3-codex") == 250_000
+        assert flask_app_module._proxy_input_ceiling("gpt-5.4-mini") == 250_000
+
+    def test_unknown_proxy_model_falls_back_to_safe_cap(self, flask_app_module):
+        # Some future gpt-* / kimi-* shows up in the dropdown that we haven't
+        # explicitly capped — fall back to a conservative ceiling rather than
+        # letting it through unbounded.
+        assert flask_app_module._proxy_input_ceiling("kimi-k2.6") == 200_000
+
+
+class TestLastInputTokens:
+    def test_returns_zero_when_no_session(self, flask_app_module, flask_app):
+        with flask_app.app_context():
+            assert flask_app_module._last_input_tokens("nonexistent-tab") == 0
+
+    def test_sums_input_cache_creation_cache_read(self, flask_app_module, flask_app):
+        tab_id = "tab-tokens-1"
+        with flask_app.app_context():
+            flask_app_module.CHAT_SESSIONS[tab_id] = {
+                "blocks": [
+                    {"type": "user", "text": "hello"},
+                    {"type": "cost", "usage": {
+                        "input_tokens": 100_000,
+                        "cache_creation_input_tokens": 50_000,
+                        "cache_read_input_tokens": 200_000,
+                    }},
+                ],
+                "socket_sids": set(),
+            }
+            try:
+                assert flask_app_module._last_input_tokens(tab_id) == 350_000
+            finally:
+                flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
+
+    def test_uses_most_recent_cost_block(self, flask_app_module, flask_app):
+        tab_id = "tab-tokens-2"
+        with flask_app.app_context():
+            flask_app_module.CHAT_SESSIONS[tab_id] = {
+                "blocks": [
+                    {"type": "cost", "usage": {"input_tokens": 50}},
+                    {"type": "user", "text": "next turn"},
+                    {"type": "cost", "usage": {"input_tokens": 999}},
+                ],
+                "socket_sids": set(),
+            }
+            try:
+                assert flask_app_module._last_input_tokens(tab_id) == 999
+            finally:
+                flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
+
+
 # ── on_queue_remove ─────────────────────────────────────────────────
 
 

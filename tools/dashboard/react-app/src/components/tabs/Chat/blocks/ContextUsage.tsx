@@ -3,14 +3,19 @@ import { useChatContext, type Block } from '@/context/ChatContext';
 import { api } from '@/api/client';
 
 // Context window (tokens) per UI model key — used as fallback if the live
-// backend response doesn't carry `limit`. When unsure, assume 1M: better to
-// underestimate usage % than to spook the user with a false "90% full".
+// backend response doesn't carry `limit`. Proxy models (gpt-*, kimi-*) route
+// via claude-code-proxy → Codex/Kimi subscription and have real ceilings well
+// below their API model-card numbers (Codex caps GPT-5.5 at 272K input).
 const MODEL_WINDOW: Record<string, number> = {
   opus: 1_000_000,
   'opus[1m]': 1_000_000,
   sonnet: 1_000_000,
   'sonnet[1m]': 1_000_000,
   haiku: 1_000_000,
+  'gpt-5.5': 272_000,
+  'gpt-5.4': 272_000,
+  'gpt-5.3-codex': 272_000,
+  'gpt-5.4-mini': 272_000,
 };
 
 function lastUsage(blocks: Block[]): Block['usage'] | null {

@@ -8,12 +8,21 @@ import { ContextUsage } from './blocks/ContextUsage';
 import { ScopePicker } from './ScopePicker';
 import type { Skill } from '@/api/types';
 
+// Proxy-routed models (gpt-*, kimi-*) go through claude-code-proxy -> Codex/Kimi
+// subscription, NOT the Anthropic API. Codex caps GPT-5.5 at 272K input despite
+// the model card listing 1M -- the [1m] tag is API-only. Don't expose it here;
+// the gateway preflight refuses oversized sessions before they hit Codex's
+// "input exceeds context window" error.
 const MODEL_OPTIONS = [
-  { value: 'opus',        label: 'Opus 4.7' },
-  { value: 'opus[1m]',    label: 'Opus 4.7 \u00b7 1M' },
-  { value: 'sonnet',      label: 'Sonnet 4.6' },
-  { value: 'sonnet[1m]',  label: 'Sonnet 4.6 \u00b7 1M' },
-  { value: 'haiku',       label: 'Haiku 4.5' },
+  { value: 'opus',              label: 'Opus 4.7' },
+  { value: 'opus[1m]',          label: 'Opus 4.7 \u00b7 1M' },
+  { value: 'sonnet',            label: 'Sonnet 4.6' },
+  { value: 'sonnet[1m]',        label: 'Sonnet 4.6 \u00b7 1M' },
+  { value: 'haiku',             label: 'Haiku 4.5' },
+  { value: 'gpt-5.5',           label: 'GPT-5.5 \u00b7 272K' },
+  { value: 'gpt-5.4',           label: 'GPT-5.4 \u00b7 272K' },
+  { value: 'gpt-5.3-codex',     label: 'GPT-5.3 Codex \u00b7 272K' },
+  { value: 'gpt-5.4-mini',      label: 'GPT-5.4 mini \u00b7 272K' },
 ];
 
 const EFFORT_OPTIONS = [
@@ -55,10 +64,23 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
   const localDirtyRef = useRef(false);
   // Set after send to block stale draft_sync/chat_state_sync from restoring old text.
   const justSentDraftKeyRef = useRef<string | null>(null);
+  // Mirrors localDraft so unmount/session-switch flush handlers see the latest text
+  // (closures over `localDraft` would capture a stale value).
+  const localDraftRef = useRef('');
+  localDraftRef.current = localDraft;
 
   // Load draft when session changes
   useEffect(() => {
     if (draftKey !== draftKeyRef.current) {
+      // Flush any unsaved draft for the OUTGOING session before switching.
+      // Without this, the pending 500ms timer would fire later and save the
+      // old text against the NEW session id (closure over draftKeyRef.current).
+      if (localDirtyRef.current && draftKeyRef.current) {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        dispatch({ type: 'SET_DRAFT', sessionId: draftKeyRef.current, text: localDraftRef.current });
+        socketRef.current?.emit('draft_save', { session_id: draftKeyRef.current, text: localDraftRef.current });
+      }
       draftKeyRef.current = draftKey;
       localDirtyRef.current = false;
       setLocalDraft(draftKey ? (state.drafts[draftKey] || '') : '');
@@ -67,17 +89,30 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
         inputRef.current.style.height = 'auto';
       }
     }
-  }, [draftKey, state.drafts]);
+  }, [draftKey, state.drafts, socketRef]);
+
+  // Flush on unmount (page reload, navigation away). Without this, the last
+  // 500ms of typing is lost.
+  useEffect(() => {
+    return () => {
+      if (localDirtyRef.current && draftKeyRef.current) {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        socketRef.current?.emit('draft_save', { session_id: draftKeyRef.current, text: localDraftRef.current });
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync from server when draft_update arrives for current session
   // Skip if user has unsaved local changes (prevents chat_state_sync from
   // overwriting text mid-typing with a stale server value).
-  // Also skip once right after send to block stale chat_state_sync race condition:
-  // backend may broadcast state before clearing draft, causing a stale value to
-  // arrive and restore the just-cleared input.
+  // Also skip stale chat_state_sync/draft_update races after send: an older
+  // server snapshot can briefly reintroduce the just-cleared draft.
   useEffect(() => {
     if (localDirtyRef.current) return;
-    if (draftKey && justSentDraftKeyRef.current === draftKey) return;
+    if (draftKey && justSentDraftKeyRef.current === draftKey) {
+      return;
+    }
     if (draftKey && state.drafts[draftKey] !== undefined) {
       setLocalDraft(prev => {
         const server = state.drafts[draftKey] || '';

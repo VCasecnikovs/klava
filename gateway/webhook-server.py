@@ -96,6 +96,55 @@ def _chat_model_and_betas(model: str | None) -> tuple[str | None, list[str] | No
     return model, None
 
 
+# Real input-token ceilings for proxy-routed models. Codex (ChatGPT/Plus/Pro) caps
+# GPT-5.5 at 400K total = 272K input + 128K output, regardless of any "[1m]" tag
+# the UI exposes — the 1M window is API-only. Sources: github.com/openai/codex
+# issues #19319, #20761, #4728. Without enforcement, claude-agent-sdk's CLI
+# subprocess thinks the model is 1M and never auto-compacts; Codex rejects with
+# "input exceeds the context window of this model" and the session deadlocks.
+# Tiny safety margin below the published cap to account for tool definitions and
+# system prompt overhead the user can't see.
+_PROXY_INPUT_CEILINGS = {
+    "gpt-5.5": 250_000,
+    "gpt-5.4": 250_000,
+    "gpt-5.4-mini": 250_000,
+    "gpt-5.3-codex": 250_000,
+    "gpt-5.2": 250_000,
+    "kimi-k2": 200_000,
+}
+
+
+def _proxy_input_ceiling(model: str | None) -> int | None:
+    """Effective input-token cap for a proxy-routed model, or None for native."""
+    if not model or not _proxy_env_for_model(model):
+        return None
+    bare = model.replace("[1m]", "").lower()
+    for prefix, cap in _PROXY_INPUT_CEILINGS.items():
+        if bare == prefix or bare.startswith(prefix + "-") or bare.startswith(prefix):
+            return cap
+    return 200_000
+
+
+def _last_input_tokens(tab_id: str) -> int:
+    """Read input-token usage from the most recent cost block of a tab."""
+    with _chat_lock:
+        sess = CHAT_SESSIONS.get(tab_id)
+        if not sess:
+            return 0
+        for blk in reversed(sess.get("blocks", [])):
+            if blk.get("type") != "cost":
+                continue
+            usage = blk.get("usage") or {}
+            if not isinstance(usage, dict):
+                return 0
+            return int(
+                (usage.get("input_tokens") or 0)
+                + (usage.get("cache_creation_input_tokens") or 0)
+                + (usage.get("cache_read_input_tokens") or 0)
+            )
+    return 0
+
+
 def _detect_outbound_comms(tool_name: str, input_data: dict) -> dict | None:
     if tool_name in _COMMS_MCP_TOOLS:
         channel = _COMMS_MCP_TOOLS[tool_name]
@@ -934,6 +983,24 @@ class ChatNamespace(Namespace):
         if not tab_id:
             emit("error", {"message": "tab_id required"})
             return
+
+        # Proxy preflight: Codex/Kimi caps below the [1m] label the UI shows.
+        # CLI subprocess won't auto-compact in time on a fat session — refuse
+        # before the request leaves the gateway and surface an actionable error.
+        proxy_cap = _proxy_input_ceiling(model)
+        if proxy_cap:
+            prior = _last_input_tokens(tab_id)
+            if prior > proxy_cap:
+                msg = (
+                    f"Context too large for {model}: last turn used "
+                    f"{prior:,} input tokens, ceiling is ~{proxy_cap:,}. "
+                    "Switch to opus[1m] (or sonnet[1m]) and run /compact, "
+                    "then switch back."
+                )
+                app.logger.warning(f"Proxy preflight blocked tab={tab_id[:12]}: {msg}")
+                self._block_add(tab_id, {"type": "error", "message": msg})
+                emit("error", {"message": msg})
+                return
 
         prompt = self._prepare_prompt(prompt, files)
 
