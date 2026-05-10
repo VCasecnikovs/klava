@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-10T14:10:59.844925+00:00",
+  "last_run": "2026-05-10T14:40:09.278827+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -61,6 +61,11 @@
     "06bh3bsm2apgumvpn73q21g347": true,
     "6go3gpj2c8r3gbb1cpgj2b9kcgrm2bb16spm2bb175hj4opk68p3gdj5ck_20260512": true,
     "6pgj8cpn74r36bb6ccs3ib9k6lhjgbb16lh3ib9g6lh3gdr364o3edhj6g_20260512": true,
-    "60ojce34cgs36bb46lhj0b9kc8q30bb2cgs3ib9g65gjgcr5chgjechi60_20260515": true
+    "60ojce34cgs36bb46lhj0b9kc8q30bb2cgs3ib9g65gjgcr5chgjechi60_20260515": true,
+    "whitsunday-2026-05-24": {
+      "title": "Whitsunday",
+      "start": "2026-05-24",
+      "attendees": []
+    }
   }
 }
