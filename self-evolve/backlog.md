@@ -5,14 +5,38 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 173
-- Items fixed (30d): 91
+- Items added (30d): 175
+- Items fixed (30d): 93
 - Avg days open: 0
-- Last run: 2026-05-09
+- Last run: 2026-05-10
 
 ---
 
 ## Items
+
+### [2026-05-10] heartbeat timeout 5400→7200s - hitting ceiling on busy days
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Two heartbeat runs timed out at 5430s today (5400s limit). avg=699s but max=5018s - consistent outlier pattern on busy vadimgest backlog days. 4th timeout bump in history (3600→5400→7200). Root cause: heavy vadimgest days generate too much data for heartbeat to process in 90 min.
+- **resolved:** 2026-05-10 Bumped heartbeat timeout_seconds 5400→7200 in cron/jobs.json (2h ceiling).
+
+### [2026-05-10] sales-mentor timeout 1800→2700s - ran 2115s on active deal day
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** sales-mentor failed with "Timeout after 1830s" - actual run was 2115s. Timeout is 1800s (30 min). Active deal days (Wallet, Eldil, Amazon, Synoptic all active) generate more CRM notes to read. Need more headroom.
+- **resolved:** 2026-05-10 Bumped sales-mentor timeout_seconds 1800→2700 in cron/jobs.json.
+
+### [2026-05-10] pulse repeated SIGTERMs - 4 kills at 15-17 UTC today
+- **source:** self-evolve CRON analysis
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Pulse failed 5 times in 24h. One SIGKILL (-9) at 1434s (memory pressure?). Four SIGTERMs at 317s, 22s, 150s, 17s - all clustered at 15-17 UTC (18-20 EEST). Pattern: multiple short kills suggest claude subprocess gets killed before producing output. Not timeout-related (pulse timeout=2700s, all failures well below). Root cause unclear - could be API rate limiting, macOS memory pressure, or process group issue. Circuit breaker sent TG alert.
+- **fix-hint:** Check if pulse is hitting API rate limits or memory pressure at peak afternoon hours. Consider adding `--max-memory` limit to avoid jetsam. Also verify pulse subprocess environment is clean (no orphaned children from prior run).
 
 ### [2026-05-09] SKILL.md cron stats script used tail-200 and missing failure counting
 - **source:** self-evolve scan
