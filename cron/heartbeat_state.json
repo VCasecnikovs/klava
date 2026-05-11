@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-11T01:45:01.792436+00:00",
+  "last_run": "2026-05-11T01:54:28.562169+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -76,7 +76,11 @@
     "gmail_unifi_identity_welcome": "2026-05-10T21:26:15.854077+00:00",
     "gtask_pulse_may11": "2026-05-10T21:26:15.854078+00:00",
     "lev-phystech-sources-2026-05-10": "2026-05-10T21:50:51.217284+00:00",
-    "xai-deal-update-2026-05-10b": "2026-05-10T21:50:51.217286+00:00"
+    "xai-deal-update-2026-05-10b": "2026-05-10T21:50:51.217286+00:00",
+    "signal_dima_weekend_amazon_may11": "2026-05-11T01:54:28.562169+00:00",
+    "gmail_zhaohong_dispatched_may11": "2026-05-11T01:54:28.562169+00:00",
+    "whatsapp_vadims_hi_may11": "2026-05-11T01:54:28.562169+00:00",
+    "gmail_uber_may11_noise": "2026-05-11T01:54:28.562169+00:00"
   },
   "seen_cal_events": {
     "1c4u12nhafdncps57hm0nubeh7": true,
