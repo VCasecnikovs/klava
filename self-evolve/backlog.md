@@ -5,10 +5,10 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 175
-- Items fixed (30d): 93
+- Items added (30d): 177
+- Items fixed (30d): 95
 - Avg days open: 0
-- Last run: 2026-05-10
+- Last run: 2026-05-11
 
 ---
 
@@ -30,13 +30,29 @@
 - **description:** sales-mentor failed with "Timeout after 1830s" - actual run was 2115s. Timeout is 1800s (30 min). Active deal days (Wallet, Eldil, Amazon, Synoptic all active) generate more CRM notes to read. Need more headroom.
 - **resolved:** 2026-05-10 Bumped sales-mentor timeout_seconds 1800→2700 in cron/jobs.json.
 
+### [2026-05-11] mentor timeout 1200→2700s - hit 1365s on active deal day
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Mentor failed with "Timeout after 1230s" (= 1200s limit + 30s watchdog). Actual run was 1365s. Active deal days (Wallet, Amazon, Synoptic, Eldil all active) generate more data to read. Same recurring pattern as sales-mentor (Apr 3), reflection (Apr 9), heartbeat.
+- **resolved:** 2026-05-11 Bumped mentor timeout_seconds 1200→2700 in jobs.json (via ~/.klava/jobs.json symlink).
+
+### [2026-05-11] self-evolve timeout 3600→4500s - timed out at 3630s today
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Self-evolve cron hit 3630s timeout (limit=3600s) at 11:23 UTC on May 11. Run was interrupted mid-cycle. Complex backlog with many open items pushes past 60 min. 5th timeout bump in history (1800→2700→3600→4500).
+- **resolved:** 2026-05-11 Bumped self-evolve timeout_seconds 3600→4500 in jobs.json (via ~/.klava/jobs.json symlink).
+
 ### [2026-05-10] pulse repeated SIGTERMs - 4 kills at 15-17 UTC today
 - **source:** self-evolve CRON analysis
 - **priority:** medium
 - **status:** open
-- **seen:** 1
-- **description:** Pulse failed 5 times in 24h. One SIGKILL (-9) at 1434s (memory pressure?). Four SIGTERMs at 317s, 22s, 150s, 17s - all clustered at 15-17 UTC (18-20 EEST). Pattern: multiple short kills suggest claude subprocess gets killed before producing output. Not timeout-related (pulse timeout=2700s, all failures well below). Root cause unclear - could be API rate limiting, macOS memory pressure, or process group issue. Circuit breaker sent TG alert.
-- **fix-hint:** Check if pulse is hitting API rate limits or memory pressure at peak afternoon hours. Consider adding `--max-memory` limit to avoid jetsam. Also verify pulse subprocess environment is clean (no orphaned children from prior run).
+- **seen:** 2
+- **description:** Pulse failed 5 times in 24h (May 10). One SIGKILL (-9) at 1434s (memory pressure?). Four SIGTERMs at 317s, 22s, 150s, 17s - all clustered at 15-17 UTC (18-20 EEST). Pattern: multiple short kills suggest claude subprocess gets killed before producing output. Not timeout-related (pulse timeout=2700s, all failures well below). Root cause: confirmed jetsam/memory pressure. May 11 added: heartbeat also got exit -9 at 11:23 UTC and 14:58 UTC. Mentor got SIGTERM at 13:49 and 14:17 UTC. All happen during peak-load windows when multiple heavy jobs overlap. The 11:32 UTC "Timeout after 5s" errors for pulse+heartbeat = scheduler-self-restart collateral (expected). MEDIUM-risk proposal created in Google Tasks.
+- **fix-hint:** Jetsam killing isolated claude sessions during peak memory use. Options: (1) stagger pulse/mentor schedules to avoid heartbeat overlap, (2) add `--max-turns` cap to mentor to limit memory footprint, (3) check if there's a way to lower process priority or set memory limits. Proposal in GT for Vadim approval.
 
 ### [2026-05-09] SKILL.md cron stats script used tail-200 and missing failure counting
 - **source:** self-evolve scan
