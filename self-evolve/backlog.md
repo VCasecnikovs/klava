@@ -5,14 +5,30 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 177
-- Items fixed (30d): 95
+- Items added (30d): 179
+- Items fixed (30d): 97
 - Avg days open: 0
-- Last run: 2026-05-11
+- Last run: 2026-05-12
 
 ---
 
 ## Items
+
+### [2026-05-12] evidence-closer timeout 3600→7200s - times out every day (5500s actual runtime)
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 3
+- **description:** evidence-closer failed every run: May 11 killed at 5618s (jetsam SIGTERM), May 12 06:26 timed out at 3600s, May 12 13:50 killed at 5540s. Actual runtime to process 200 result cards with haiku calls is 5500-6000s. Timeout was 3600s (1h) — not enough for 200 cards at ~25-30s per card. Evidence-driven auto-close for results effectively non-functional.
+- **resolved:** 2026-05-12 Bumped evidence-closer timeout_seconds 3600→7200 in ~/.klava/jobs.json (hot-reload, 2h ceiling).
+
+### [2026-05-12] self-evolve timeout 4500→5400s - hit 4530s today
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** self-evolve CRON failed with "Timeout after 4530s" on May 12. Limit was 4500s (bumped May 11 from 3600). Today's run hit the ceiling again on complex backlog day. 6th timeout bump in history.
+- **resolved:** 2026-05-12 Bumped self-evolve timeout_seconds 4500→5400 in ~/.klava/jobs.json (hot-reload).
 
 ### [2026-05-10] heartbeat timeout 5400→7200s - hitting ceiling on busy days
 - **source:** self-evolve CRON analysis
