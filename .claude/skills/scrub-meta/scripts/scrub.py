@@ -74,6 +74,40 @@ def exif_snapshot(path: Path) -> list[dict]:
         return []
 
 
+def sanitize_filename(stem: str, terms: list[str]) -> str:
+    """Strip identifying noise from a filename stem.
+
+    Filenames leak identity too. Common vectors:
+    - partner / org names (loaded from leak-terms.txt + --terms)
+    - sensitivity markers: [External], [Internal], [Confidential], (External), etc.
+    - upload session IDs prepended by chat / webform: long digit run + underscore
+    - copy suffixes from re-downloads: trailing "(1)", "(2)"
+    - software-stamped suffixes: "_copy", "_final", "_v2" - harmless, kept
+
+    Returns sanitized stem. If everything strips out, falls back to "document".
+    """
+    s = stem
+    # Leak terms (partner names etc.) - whole-token match, case-insensitive.
+    # Custom boundary: only [A-Za-z0-9] count as "inside a word", so underscores,
+    # spaces, brackets, dashes all act as separators. Python's \b treats _ as a
+    # word char, which would miss "_Grably_" - we need stricter than \b here.
+    for t in terms:
+        if not t.strip():
+            continue
+        s = re.sub(rf"(?i)(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])", "", s)
+    # Sensitivity / audience markers in brackets or parens.
+    s = re.sub(r"(?i)[\[\(]\s*(external|internal|confidential|draft|public|private|nda|client copy)\s*[\]\)]", "", s)
+    # Leading upload-session ID: 10+ digit run followed by separator.
+    s = re.sub(r"^\d{10,}[ _\-]+", "", s)
+    # Trailing copy marker " (1)", "(2)" etc.
+    s = re.sub(r"\s*\(\d+\)\s*$", "", s)
+    # Collapse repeated separators, trim edges.
+    s = re.sub(r"[ _\-]{2,}", " ", s)
+    s = s.strip(" _-")
+    s = re.sub(r"\s+", " ", s)
+    return s or "document"
+
+
 def load_leak_terms(extra: str | None) -> list[str]:
     terms: list[str] = []
     if PERSONAL_LEAK_TERMS.is_file():
@@ -449,14 +483,20 @@ def main() -> None:
     if not src.is_file():
         sys.exit(f"not a file: {src}")
 
-    out = args.out.expanduser().resolve() if args.out else (Path.home() / "Downloads" / f"{src.stem}_clean{src.suffix}")
+    terms = load_leak_terms(args.terms)
+    if args.out:
+        out = args.out.expanduser().resolve()
+    else:
+        clean_stem = sanitize_filename(src.stem, terms)
+        out = Path.home() / "Downloads" / f"{clean_stem}_clean{src.suffix}"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     category, mime = detect_category(src)
     fn = SCRUBBERS.get(category, scrub_unknown)
     info = fn(src, out)
     notes = universal_pass(out)
-    terms = load_leak_terms(args.terms)
+    if not args.out and out.stem != f"{src.stem}_clean":
+        notes.append(f"renamed: filename leak terms / markers stripped (was: '{src.name}')")
     ok, issues = verify(out, terms, category)
     report(src, out, category, mime, info, notes, ok, issues)
     if args.reveal:

@@ -41,6 +41,21 @@ Accept the file path as the first positional arg. Resolve to absolute. Fail loud
 **Execution:** Direct
 **Verify:** `os.path.isfile(path)`
 
+## Step 1b: Sanitize filename
+
+The filename is a leak vector too — partner names, `[External]` markers, upload-session IDs, and copy suffixes all travel inside it and survive every content scrub. When `--out` is not provided, `sanitize_filename()` strips:
+
+- Standing leak terms from `personal/scrub-meta/leak-terms.txt` (whole-token, case-insensitive) and any `--terms` extras
+- Sensitivity markers in brackets or parens: `[External]`, `(Internal)`, `[Confidential]`, `[Draft]`, `[NDA]`, `[Client Copy]`
+- Leading upload-session IDs: 10+ digit prefix followed by `_` / `-` / space (e.g. `1778551079623_…`)
+- Trailing copy markers: ` (1)`, `(2)` from re-downloads
+- Collapsed whitespace / separators, trimmed edges
+
+Output goes to `~/Downloads/<sanitized>_clean.<ext>`. When the rename triggers, the report surfaces a `renamed:` note with the original filename so the user sees what was stripped. If the caller passes `--out` explicitly, that wins — no auto-rename. Fallback stem `document` is used if sanitization empties the string.
+
+**Execution:** Direct
+**Verify:** report shows `renamed:` note when stem differs from `<src.stem>_clean`
+
 ## Step 2: Detect type
 
 `file --mime-type -b <path>` returns canonical MIME. Map to a category: `ooxml | pdf | image | video | audio | archive | iwork | legacy_office | svg | text | unknown`.
