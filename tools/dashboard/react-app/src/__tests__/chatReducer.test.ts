@@ -708,6 +708,13 @@ describe('SET_MODEL localStorage', () => {
     expect(localStorage.getItem('chat_model')).toBe('opus');
   });
 
+  it('RESTORE_MODEL updates UI state without saving a per-session setting', () => {
+    const state = makeState({ claudeSessionId: 'sess-1', model: 'opus' });
+    const result = chatReducer(state, { type: 'RESTORE_MODEL', model: 'sonnet' });
+    expect(result.model).toBe('sonnet');
+    expect(localStorage.getItem('chat_session_settings')).toBeNull();
+  });
+
   it('merges with existing per-session settings', () => {
     localStorage.setItem('chat_session_settings', JSON.stringify({ 'sess-1': { effort: 'low' } }));
     const state = makeState({ claudeSessionId: 'sess-1' });
@@ -740,6 +747,13 @@ describe('SET_EFFORT localStorage', () => {
     const state = makeState({ claudeSessionId: null, tabId: null });
     chatReducer(state, { type: 'SET_EFFORT', effort: 'low' });
     expect(localStorage.getItem('chat_effort')).toBe('low');
+  });
+
+  it('RESTORE_EFFORT updates UI state without saving a per-session setting', () => {
+    const state = makeState({ claudeSessionId: 'sess-1', effort: 'high' });
+    const result = chatReducer(state, { type: 'RESTORE_EFFORT', effort: 'medium' });
+    expect(result.effort).toBe('medium');
+    expect(localStorage.getItem('chat_session_settings')).toBeNull();
   });
 
   it('updates effort state', () => {

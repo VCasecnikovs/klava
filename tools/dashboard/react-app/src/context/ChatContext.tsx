@@ -35,7 +35,11 @@ export interface ToolUseData {
   _sid?: string;
 }
 
-export type SidebarFilter = 'active' | 'all' | 'human' | 'cron';
+// 'cron' was renamed to 'other' to better reflect what it captures: any
+// non-human-initiated session (cron, auxiliary, executor-spawned, etc).
+// We accept the legacy 'cron' string at read time for backward-compat with
+// stored localStorage values, and migrate it to 'other' on next persist.
+export type SidebarFilter = 'active' | 'all' | 'human' | 'other';
 
 export interface ActiveEntry {
   tab_id: string | null;
@@ -190,7 +194,9 @@ export type ChatAction =
   | { type: 'REALTIME_RESET' }
   | { type: 'SET_REALTIME_STATUS'; status: 'idle' | 'streaming' | 'ready' }
   | { type: 'SET_MODEL'; model: string }
+  | { type: 'RESTORE_MODEL'; model: string }
   | { type: 'SET_EFFORT'; effort: string }
+  | { type: 'RESTORE_EFFORT'; effort: string }
   | { type: 'SET_PENDING_PERMISSION'; permission: PermissionRequest | null }
   | { type: 'SET_PENDING_COMMS'; comms: CommsApprovalRequest | null }
   | { type: 'SET_PERMISSION_MODE'; mode: 'ask' | 'accept_all' | 'deny_all' }
@@ -425,6 +431,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
       return { ...state, model: action.model };
     }
+    case 'RESTORE_MODEL':
+      return { ...state, model: action.model };
     case 'SET_EFFORT': {
       const sid = state.claudeSessionId || state.tabId;
       if (sid) {
@@ -438,6 +446,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
       return { ...state, effort: action.effort };
     }
+    case 'RESTORE_EFFORT':
+      return { ...state, effort: action.effort };
     case 'SET_PENDING_PERMISSION':
       return { ...state, pendingPermission: action.permission };
     case 'SET_PENDING_COMMS':
@@ -505,7 +515,8 @@ export const INITIAL_STATE: ChatState = {
   streamStart: 0,
   sidebarFilter: ((): SidebarFilter => {
     const stored = localStorage.getItem('chat_sidebar_filter');
-    return (stored === 'active' || stored === 'all' || stored === 'human' || stored === 'cron') ? stored : 'all';
+    if (stored === 'cron') return 'other';
+    return (stored === 'active' || stored === 'all' || stored === 'human' || stored === 'other') ? stored : 'all';
   })(),
   wasConnected: false,
   reconnectAttempts: 0,

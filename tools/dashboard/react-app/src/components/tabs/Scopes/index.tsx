@@ -63,7 +63,7 @@ export function ScopesTab() {
     if (!session.sid) return;
     window.dispatchEvent(new CustomEvent('chat:open'));
     window.dispatchEvent(
-      new CustomEvent('chat:resume-session', { detail: { session_id: session.sid } })
+      new CustomEvent('chat:resume-session', { detail: { sessionId: session.sid } })
     );
   }, []);
 
@@ -129,19 +129,24 @@ export function ScopesTab() {
             <Header
               scope={selected}
               hub={items?.hub || null}
-              counts={items?.counts || { open_tasks: 0, results: 0, sessions: 0, views: 0 }}
+              counts={{
+                open_tasks: items?.counts?.open_tasks ?? 0,
+                results: items?.counts?.results ?? 0,
+                sessions: items?.counts?.sessions ?? 0,
+                views: items?.counts?.views ?? 0,
+              }}
               loading={itemsFetching && !items}
               onNewChat={() => handleNewChat(selected)}
             />
 
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {(items?.views.length ?? 0) > 0 && (
-                <Panel title={`Views (${items?.views.length ?? 0})`}>
-                  <ViewsGallery views={items?.views || []} onOpen={handleOpenView} />
+              {(items?.views?.length ?? 0) > 0 && (
+                <Panel title={`Views (${items?.views?.length ?? 0})`}>
+                  <ViewsGallery views={items?.views ?? []} onOpen={handleOpenView} />
                 </Panel>
               )}
 
-              <Panel title={`Open tasks${items ? ` (${items.counts.open_tasks})` : ''}`}>
+              <Panel title={`Open tasks${items ? ` (${items.counts?.open_tasks ?? 0})` : ''}`}>
                 <TaskList
                   tasks={items?.tasks || []}
                   placeholder="(no open tasks in this scope)"
@@ -155,7 +160,7 @@ export function ScopesTab() {
                 />
               </Panel>
 
-              <Panel title={`Recent results${items ? ` (${items.counts.results})` : ''}`}>
+              <Panel title={`Recent results${items ? ` (${items.counts?.results ?? 0})` : ''}`}>
                 <TaskList
                   tasks={items?.results || []}
                   placeholder="(no recent results)"
@@ -166,13 +171,13 @@ export function ScopesTab() {
                 />
               </Panel>
 
-              <Panel title={`Recent sessions${items ? ` (${items.counts.sessions})` : ''}`}>
+              <Panel title={`Recent sessions${items ? ` (${items.counts?.sessions ?? 0})` : ''}`}>
                 <SessionList sessions={items?.sessions || []} onOpen={handleOpenSession} />
               </Panel>
 
-              {items && items.notes.length > 0 && (
+              {items && (items.notes?.length ?? 0) > 0 && (
                 <Panel title="Recent notes">
-                  <NoteList notes={items.notes} />
+                  <NoteList notes={items.notes ?? []} />
                 </Panel>
               )}
             </div>
@@ -386,10 +391,32 @@ function SessionList({ sessions, onOpen }: { sessions: ScopeSessionRow[]; onOpen
 }
 
 function NoteList({ notes }: { notes: ScopeNoteRow[] }) {
+  const openInObsidian = (path: string) => {
+    // Strip trailing .md, URL-encode, route via vault MyBrain
+    const cleaned = path.replace(/\.md$/i, '');
+    const uri = `obsidian://open?vault=MyBrain&file=${encodeURIComponent(cleaned)}`;
+    window.location.href = uri;
+  };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {notes.map(n => (
-        <div key={n.path} style={{ fontSize: 12, padding: '4px 0' }}>
+        <div
+          key={n.path}
+          onClick={() => openInObsidian(n.path)}
+          style={{
+            fontSize: 12, padding: '6px 8px', borderRadius: 4,
+            cursor: 'pointer', border: `1px solid transparent`,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = HOVER;
+            e.currentTarget.style.borderColor = BORDER;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.borderColor = 'transparent';
+          }}
+          title="Open in Obsidian"
+        >
           <div style={{ color: '#d4d4d8' }}>{n.path}</div>
           {n.preview && <div style={{ color: MUTED, marginTop: 2 }}>{n.preview}</div>}
         </div>

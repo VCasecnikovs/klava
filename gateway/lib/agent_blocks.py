@@ -49,6 +49,7 @@ class AgentBlockTracker:
 
         # SDK tool_use_id -> per-agent sub-state for text accumulation
         self._sub_states: dict[str, dict] = {}
+        self._sub_tool_ids: dict[str, dict[str, int]] = {}
 
     def handle_tool_use(self, block: Any) -> bool:
         """Handle a ToolUseBlock. Returns True if it was an agent (Task) tool."""
@@ -76,6 +77,10 @@ class AgentBlockTracker:
             "last_text_len": 0,
             "current_text_idx": None,
         }
+        self._sub_tool_ids[tool_id] = {}
+        if not hasattr(self, "_start_times"):
+            self._start_times: dict[int, float] = {}
+        self._start_times[block_id] = agent_block["start_time"]
 
         return True
 
@@ -165,14 +170,18 @@ class AgentBlockTracker:
                 sub_state["last_text_len"] = 0
 
             elif "ToolUseBlock" in item_type:
+                tool_use_id = getattr(item, "id", "")
                 sub_block = {
                     "type": "tool_use",
                     "tool": getattr(item, "name", ""),
                     "input": getattr(item, "input", {}),
                     "running": True,
                     "start_time": _time.time(),
+                    "tool_use_id": tool_use_id,
                 }
-                self._append_agent_sub_block(parent_id, block_id, sub_block)
+                idx = self._append_agent_sub_block(parent_id, block_id, sub_block)
+                if tool_use_id:
+                    self._sub_tool_ids.setdefault(parent_id, {})[tool_use_id] = idx
                 # Reset text tracking
                 sub_state["current_text_idx"] = None
                 sub_state["last_text_len"] = 0
@@ -189,8 +198,8 @@ class AgentBlockTracker:
                     "content": str(content_val or ""),
                 }
                 self._append_agent_sub_block(parent_id, block_id, sub_block)
-                # Mark last running tool as done
-                self._mark_last_sub_tool_done(parent_id, block_id)
+                # Mark the matching tool as done (parallel sub-tools can finish out of order)
+                self._mark_sub_tool_done(parent_id, block_id, getattr(item, "tool_use_id", ""))
 
         return True
 
@@ -212,6 +221,9 @@ class AgentBlockTracker:
 
         del self.active_agents[tool_use_id]
         self._sub_states.pop(tool_use_id, None)
+        self._sub_tool_ids.pop(tool_use_id, None)
+        if hasattr(self, "_start_times"):
+            self._start_times.pop(block_id, None)
 
         return True
 
@@ -285,7 +297,12 @@ class AgentBlockTracker:
         status  = getattr(msg, "status", None)
         summary = getattr(msg, "summary", None)
         usage   = getattr(msg, "usage", None)
-        patch: dict = {"running": False}
+        # Annotate status/summary/usage but DO NOT flip running here. The
+        # canonical terminal signal is ToolResultBlock (handle_tool_result),
+        # which arrives after all subagent stream events have drained.
+        # Flipping running early causes the UI to render "completed" before
+        # the sub-blocks land, so the user sees an empty agent block.
+        patch: dict = {}
         if status:
             patch["status"] = status
         if summary:
@@ -326,17 +343,26 @@ class AgentBlockTracker:
             cache[idx].update(patch)
             self._on_update(block_id, {"agent_blocks": list(cache)})
 
-    def _mark_last_sub_tool_done(self, agent_tool_id: str, block_id: int):
-        """Mark the last running tool_use sub-block as done."""
+    def _mark_sub_tool_done(self, agent_tool_id: str, block_id: int, tool_use_id: str = ""):
+        """Mark the matching running tool_use sub-block as done."""
         if not hasattr(self, "_agent_blocks_cache"):
             return
 
         cache = self._agent_blocks_cache.get(block_id, [])
-        for sub in reversed(cache):
+        target_idx = None
+        if tool_use_id:
+            target_idx = self._sub_tool_ids.get(agent_tool_id, {}).get(tool_use_id)
+        if target_idx is not None and target_idx < len(cache):
+            sub = cache[target_idx]
             if sub.get("type") == "tool_use" and sub.get("running"):
                 sub["running"] = False
                 sub["duration_ms"] = int((_time.time() - sub.get("start_time", _time.time())) * 1000)
-                break
+        else:
+            for sub in reversed(cache):
+                if sub.get("type") == "tool_use" and sub.get("running"):
+                    sub["running"] = False
+                    sub["duration_ms"] = int((_time.time() - sub.get("start_time", _time.time())) * 1000)
+                    break
 
         self._on_update(block_id, {"agent_blocks": list(cache)})
 

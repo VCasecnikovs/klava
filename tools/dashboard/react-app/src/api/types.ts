@@ -351,6 +351,10 @@ export interface ViewItem {
   name: string;
   modified: string;
   size?: number;
+  // Scope attached to this view: explicit override (Views/_scopes.json) wins
+  // over inferred scope. `scope_explicit` distinguishes the two.
+  scope?: string | null;
+  scope_explicit?: boolean;
 }
 
 export interface ViewsData {
@@ -369,6 +373,13 @@ export interface Session {
   is_human?: boolean;
   is_cron?: boolean;
   snippet?: string;
+  // Registry-backed metadata: `type` is the authoritative human/other signal.
+  // 'user' = dashboard chat, 'cron' = scheduled job, 'auxiliary' = sub-task /
+  // tool-spawned. Older sessions predate the registry and have no type set;
+  // fall back to preview-based classification for those.
+  type?: 'user' | 'cron' | 'auxiliary' | string | null;
+  source?: string | null;
+  job_id?: string | null;
 }
 
 export interface ChatMessage {
@@ -527,12 +538,12 @@ export interface ScopeSessionRow {
 export interface ScopeItemsData {
   scope: string;
   hub: Record<string, unknown> | null;
-  notes: ScopeNoteRow[];
-  tasks: ScopeTaskRow[];
-  results: ScopeTaskRow[];
-  sessions: ScopeSessionRow[];
-  views: ScopeViewRow[];
-  counts: { open_tasks: number; results: number; sessions: number; views: number };
+  notes?: ScopeNoteRow[];
+  tasks?: ScopeTaskRow[];
+  results?: ScopeTaskRow[];
+  sessions?: ScopeSessionRow[];
+  views?: ScopeViewRow[];
+  counts?: { open_tasks?: number; results?: number; sessions?: number; views?: number };
 }
 
 export interface TabConfig {

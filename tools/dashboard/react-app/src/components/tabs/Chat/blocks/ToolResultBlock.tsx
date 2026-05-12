@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getToolConfig, formatToolResult } from '../toolRegistry';
+import { getToolConfig, formatToolResult, getToolMeta } from '../toolRegistry';
 import type { Block } from '@/context/ChatContext';
 
 export function ToolResultBlock({ block }: { block: Block }) {
@@ -8,6 +8,7 @@ export function ToolResultBlock({ block }: { block: Block }) {
 
   const toolName = block.tool || '';
   const reg = getToolConfig(toolName);
+  const meta = getToolMeta(toolName);
   const richResult = formatToolResult(toolName, content, block.input);
   const [collapsed, setCollapsed] = useState(content.length > 200);
 
@@ -30,7 +31,9 @@ export function ToolResultBlock({ block }: { block: Block }) {
         className="chat-tool-result-header"
         onClick={(e) => { e.stopPropagation(); setCollapsed(c => !c); }}
       >
-        <span style={{ fontSize: '8px' }}>&#9654;</span> Result ({content.length} chars)
+        <span className="chat-tool-result-arrow">&#9654;</span>
+        <span>{meta.category} result</span>
+        <span className="chat-tool-result-count">{content.length} chars</span>
       </div>
       <div className="chat-tool-result-content">
         {content}

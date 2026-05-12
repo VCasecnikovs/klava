@@ -51,6 +51,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient, ClaudeAgentOptions,
     AssistantMessage, UserMessage, ResultMessage,
     TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock,
+    ServerToolUseBlock, ServerToolResultBlock,
     PermissionResultAllow,
     PermissionResultDeny,
     HookMatcher,
@@ -143,6 +144,22 @@ def _last_input_tokens(tab_id: str) -> int:
                 + (usage.get("cache_read_input_tokens") or 0)
             )
     return 0
+
+
+def _history_tool_name(item: dict) -> str:
+    """Normalize JSONL assistant content item tool names for dashboard blocks."""
+    tool_name = item.get("name", "")
+    if item.get("type") == "server_tool_use":
+        return {
+            "bash_code_execution": "BashCodeExecution",
+            "text_editor_code_execution": "TextEditorCodeExecution",
+            "code_execution": "CodeExecution",
+            "web_search": "WebSearch",
+            "web_fetch": "WebFetch",
+            "tool_search_tool_regex": "ToolSearchRegex",
+            "tool_search_tool_bm25": "ToolSearchBM25",
+        }.get(str(tool_name), str(tool_name or "ServerTool"))
+    return str(tool_name or "")
 
 
 def _detect_outbound_comms(tool_name: str, input_data: dict) -> dict | None:
@@ -250,6 +267,12 @@ _chat_ui_lock = threading.Lock()
 CHAT_UI_STATE_FILE = _gateway_config.state_dir() / "chat-ui.json"
 _chat_ui_state = {"version": 2, "active_sessions": [], "session_names": {}, "unread_sessions": [], "drafts": {}, "scopes": {}, "updated_at": ""}
 
+# Cap on active_sessions sidebar list. None = unlimited (sessions never disappear,
+# per Vadim). Earlier code hard-capped at 20 in 6 places, which silently truncated
+# the oldest entries when a 21st arrived. If perf becomes an issue with thousands of
+# entries, set this to a large int.
+MAX_ACTIVE_SESSIONS: int | None = None
+
 # Rate limiting (in-memory)
 rate_limit_store = defaultdict(list)
 MAX_REQUESTS_PER_HOUR = _gateway_config.load().get("webhook", {}).get("rate_limit_per_hour", 100)
@@ -329,31 +352,16 @@ def _load_chat_ui_state():
                     data["active_sessions"] = migrated
                     data["version"] = 2
 
-                # Validate: entries with session_id must have file on disk
-                valid_active = []
-                for entry in data["active_sessions"]:
-                    if not isinstance(entry, dict):
-                        continue
-                    sid = entry.get("session_id")
-                    if sid and _find_session_file(sid):
-                        valid_active.append(entry)
-                    elif not sid and entry.get("tab_id"):
-                        # Tab-only entry: only keep if there's an active streaming process
-                        # At startup, no CHAT_SESSIONS exist, so these are always orphans
-                        tab_id = entry.get("tab_id")
-                        if tab_id in CHAT_SESSIONS and not CHAT_SESSIONS[tab_id].get("process_done"):
-                            valid_active.append(entry)
-                        # else: orphan tab_id without session file, prune
-                    # else: orphan, skip
-
-                removed = len(data["active_sessions"]) - len(valid_active)
-                if removed:
-                    app.logger.info(f"Pruned {removed} orphan active sessions (no file on disk)")
+                # Per Vadim: never silently drop session entries. Earlier code pruned
+                # entries whose session_id had no .jsonl on disk (or whose tab_id had
+                # no live CHAT_SESSIONS process at startup), which was the main reason
+                # sessions vanished after a server restart. Now we keep every dict
+                # entry; clicking a stale row will surface "session not found" and
+                # the user can remove it manually.
+                valid_active = [e for e in data["active_sessions"] if isinstance(e, dict)]
                 data["active_sessions"] = valid_active
                 data["version"] = 2
                 _chat_ui_state = data
-                if removed:
-                    _save_chat_ui_state()
         except (json.JSONDecodeError, OSError) as e:
             app.logger.warning(f"Failed to load chat UI state: {e}")
 
@@ -458,6 +466,44 @@ def _get_cron_session_ids():
     return _cron_ids_cache["ids"]
 
 
+# Grace window after ResultMessage during which the session keeps showing as
+# "streaming" even though session_idle was flipped. This stops the dashboard
+# from flickering "done" between rapid turns and, more importantly, keeps the
+# indicator on when background tools (Monitor, server-side tool results, etc.)
+# write blocks after a turn has nominally ended. Tuned to be longer than any
+# normal frame-render gap but short enough that a truly dead session stops
+# pretending it is alive within ~one breath.
+_SESSION_ACTIVITY_GRACE_S = 5.0
+
+
+def _session_is_active(sess, now=None):
+    """Activity-based liveness check used by the snapshot + sidebar.
+
+    A session is considered active if any of the following holds:
+      - the SDK client (or legacy process) is connected, the turn loop hasn't
+        finished, and either we have not been parked on `incoming.get()` OR
+        the last backend write happened within the grace window;
+      - a detached child process is still associated;
+      - the session has just been created and the SDK hasn't connected yet
+        (startup grace, ~30s).
+    """
+    if now is None:
+        now = time.time()
+    if sess.get("process_done"):
+        return False
+    if sess.get("_detached_pid"):
+        return True
+    has_runtime = bool(sess.get("process") or sess.get("sdk_client"))
+    if has_runtime:
+        if not sess.get("session_idle"):
+            return True
+        last = sess.get("last_activity_ts") or sess.get("started") or 0
+        return (now - last) < _SESSION_ACTIVITY_GRACE_S
+    # No runtime yet — short startup grace so a freshly-created tab shows
+    # streaming before the SDK subprocess has connected.
+    return (now - (sess.get("started") or 0)) < 30
+
+
 def _get_chat_state_snapshot():
     """Get current chat UI state + streaming sessions. Thread-safe."""
     # Heal active_sessions: any currently-live tab in CHAT_SESSIONS should be in
@@ -465,15 +511,10 @@ def _get_chat_state_snapshot():
     # was persisted to disk; remaining live sessions trickle in one-by-one as
     # each emits its next event (see auto-insert around line 1369).
     live_tabs = []
+    now = time.time()
     with _chat_lock:
         for _tab_id, _sess in CHAT_SESSIONS.items():
-            _is_live = (
-                ((_sess.get("process") or _sess.get("sdk_client"))
-                 and not _sess.get("process_done")
-                 and not _sess.get("session_idle"))
-                or (_sess.get("_detached_pid") and not _sess.get("process_done"))
-            )
-            if _is_live:
+            if _session_is_active(_sess, now=now):
                 live_tabs.append((_tab_id, _sess.get("claude_session_id")))
 
     with _chat_ui_lock:
@@ -496,8 +537,8 @@ def _get_chat_state_snapshot():
                 existing_tabs.add(_tab_id)
                 healed = True
         if healed:
-            if len(_chat_ui_state["active_sessions"]) > 20:
-                _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:20]
+            if MAX_ACTIVE_SESSIONS is not None and len(_chat_ui_state["active_sessions"]) > MAX_ACTIVE_SESSIONS:
+                _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:MAX_ACTIVE_SESSIONS]
             try:
                 _save_chat_ui_state()
             except Exception:
@@ -511,19 +552,7 @@ def _get_chat_state_snapshot():
     streaming = []
     with _chat_lock:
         for tab_id, sess in CHAT_SESSIONS.items():
-            is_active = (
-                (sess.get("process") or sess.get("sdk_client"))
-                and not sess.get("process_done")
-                and not sess.get("session_idle")
-            ) or (sess.get("_detached_pid") and not sess.get("process_done")) or (
-                # Startup grace: session just created, SDK not connected yet
-                not sess.get("process_done")
-                and not sess.get("session_idle")
-                and not sess.get("sdk_client")
-                and not sess.get("process")
-                and (time.time() - sess.get("started", 0)) < 30
-            )
-            if is_active:
+            if _session_is_active(sess, now=now):
                 blocks = sess.get("blocks", [])
                 last_event = blocks[-1] if blocks else {}
                 elapsed = int(time.time() - sess.get("started", time.time()))
@@ -939,8 +968,8 @@ class ChatNamespace(Namespace):
                             break
                 if not already:
                     _chat_ui_state["active_sessions"].insert(0, {"tab_id": tab_id, "session_id": resume_session_id})
-                    if len(_chat_ui_state["active_sessions"]) > 20:
-                        _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:20]
+                    if MAX_ACTIVE_SESSIONS is not None and len(_chat_ui_state["active_sessions"]) > MAX_ACTIVE_SESSIONS:
+                        _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:MAX_ACTIVE_SESSIONS]
             _save_chat_ui_state()
 
         emit_kwargs = {"namespace": "/chat"}
@@ -1159,8 +1188,8 @@ class ChatNamespace(Namespace):
             )
             if not already:
                 _chat_ui_state["active_sessions"].insert(0, {"tab_id": None, "session_id": session_id})
-                if len(_chat_ui_state["active_sessions"]) > 20:
-                    _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:20]
+                if MAX_ACTIVE_SESSIONS is not None and len(_chat_ui_state["active_sessions"]) > MAX_ACTIVE_SESSIONS:
+                    _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:MAX_ACTIVE_SESSIONS]
                 _save_chat_ui_state()
         _broadcast_chat_state()
 
@@ -1398,11 +1427,19 @@ class ChatNamespace(Namespace):
 
     def _block_add(self, tab_id, block):
         """Add block to realtime Ground Truth and emit to all subscribed clients."""
+        resurrect_broadcast = False
         with _chat_lock:
             sess = CHAT_SESSIONS.get(tab_id)
             if not sess:
                 return
             sess["last_activity_ts"] = time.time()
+            # If anything writes blocks while the session was parked at idle
+            # (e.g. Monitor-triggered turn, late-arriving server tool result,
+            # or any other SDK-initiated activity), flip the indicator back on
+            # so the dashboard shows the session as alive.
+            if sess.get("session_idle") and sess.get("sdk_client"):
+                sess["session_idle"] = False
+                resurrect_broadcast = True
             blocks = sess.setdefault("blocks", [])
             block["id"] = len(blocks)
             blocks.append(block)
@@ -1412,19 +1449,33 @@ class ChatNamespace(Namespace):
                 socketio.emit("realtime_block_add", {"block": block, "tab_id": tab_id}, namespace="/chat", to=sid)
             except Exception:
                 pass
+        if resurrect_broadcast:
+            try:
+                _broadcast_chat_state()
+            except Exception:
+                pass
 
     def _block_update(self, tab_id, block_id, patch):
         """Update existing block in realtime GT and emit patch to clients."""
+        resurrect_broadcast = False
         with _chat_lock:
             sess = CHAT_SESSIONS.get(tab_id)
             if not sess or block_id >= len(sess.get("blocks", [])):
                 return
             sess["last_activity_ts"] = time.time()
+            if sess.get("session_idle") and sess.get("sdk_client"):
+                sess["session_idle"] = False
+                resurrect_broadcast = True
             sess["blocks"][block_id].update(patch)
             target_sids = set(sess.get("socket_sids", set()))
         for sid in target_sids:
             try:
                 socketio.emit("realtime_block_update", {"id": block_id, "patch": patch, "tab_id": tab_id}, namespace="/chat", to=sid)
+            except Exception:
+                pass
+        if resurrect_broadcast:
+            try:
+                _broadcast_chat_state()
             except Exception:
                 pass
 
@@ -1526,8 +1577,8 @@ class ChatNamespace(Namespace):
             if not already:
                 _chat_ui_state["active_sessions"].insert(0, {"tab_id": tab_id, "session_id": resume_session_id})
                 app.logger.info(f"Inserted tab={tab_id[:12]} into active_sessions, now {len(_chat_ui_state['active_sessions'])} entries")
-                if len(_chat_ui_state["active_sessions"]) > 20:
-                    _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:20]
+                if MAX_ACTIVE_SESSIONS is not None and len(_chat_ui_state["active_sessions"]) > MAX_ACTIVE_SESSIONS:
+                    _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:MAX_ACTIVE_SESSIONS]
             else:
                 app.logger.info(f"Tab {tab_id[:12]} already in active_sessions")
             _save_chat_ui_state()
@@ -1545,6 +1596,7 @@ class ChatNamespace(Namespace):
         tool_flush_timer     = None
         tool_name            = ""
         tool_input           = {}
+        tool_id_to_input     = {}
         loading_block_id     = None
 
         # Agent block tracker for nested subagent rendering
@@ -1582,6 +1634,110 @@ class ChatNamespace(Namespace):
             else:
                 self._block_add(tab_id, pending_tools[0])
             pending_tools = []
+
+        def _plain_tool_result_content(content):
+            if isinstance(content, list):
+                return "\n".join(
+                    c.get("text", "") for c in content
+                    if isinstance(c, dict) and c.get("type") == "text"
+                )
+            if isinstance(content, dict):
+                try:
+                    return json.dumps(content, ensure_ascii=False, indent=2)
+                except Exception:
+                    return str(content)
+            return str(content or "")
+
+        def _mark_tool_done(tool_use_id, fallback_tool_name=""):
+            result_tool_name = tool_id_to_name.get(tool_use_id, fallback_tool_name)
+            result_tool_input = tool_id_to_input.get(tool_use_id, {})
+            tool_update_patch = None
+            tool_update_block_id = None
+            with _chat_lock:
+                s = CHAT_SESSIONS.get(tab_id)
+                if s:
+                    for blk in reversed(s.get("blocks", [])):
+                        if blk.get("type") == "tool_use":
+                            if blk.get("tool_use_id") == tool_use_id or (not tool_use_id and blk.get("running")):
+                                dm = int((_time.time() - blk.get("start_time", _time.time())) * 1000)
+                                blk["running"] = False
+                                blk["duration_ms"] = dm
+                                tool_update_block_id = blk["id"]
+                                tool_update_patch = {"running": False, "duration_ms": dm}
+                                result_tool_input = blk.get("input", result_tool_input)
+                                break
+                        elif blk.get("type") == "tool_group":
+                            matched = False
+                            for t in blk.get("tools", []):
+                                if t.get("tool_use_id") == tool_use_id or (not tool_use_id and t.get("running")):
+                                    t["running"] = False
+                                    t["duration_ms"] = int((_time.time() - t.get("start_time", _time.time())) * 1000)
+                                    result_tool_input = t.get("input", result_tool_input)
+                                    matched = True
+                                    break
+                            if matched:
+                                tool_update_block_id = blk["id"]
+                                tool_update_patch = {"tools": [dict(tt) for tt in blk["tools"]]}
+                                break
+            if tool_update_patch is not None:
+                self._block_update(tab_id, tool_update_block_id, tool_update_patch)
+            return result_tool_name, result_tool_input
+
+        def _remember_tool_use(tool_id, tool_name, tool_input):
+            tool_id_to_name[tool_id] = tool_name
+            tool_id_to_input[tool_id] = tool_input
+
+        def _queue_tool_block(tool_id, tool_name, tool_input):
+            nonlocal tool_flush_timer
+            _remember_tool_use(tool_id, tool_name, tool_input)
+            tool_block = {
+                "type":        "tool_use",
+                "tool":        tool_name,
+                "input":       tool_input,
+                "running":     True,
+                "start_time":  _time.time(),
+                "tool_use_id": tool_id,
+            }
+            pending_tools.append(tool_block)
+            if tool_flush_timer:
+                tool_flush_timer.cancel()
+            tool_flush_timer = threading.Timer(0.15, _flush_tools)
+            tool_flush_timer.start()
+
+        def _add_tool_result_block(tool_name, content, tool_input):
+            if tool_name == "EnterPlanMode":
+                return
+            if tool_name == "ExitPlanMode":
+                plan_block_id = None
+                with _chat_lock:
+                    s = CHAT_SESSIONS.get(tab_id)
+                    if s:
+                        for blk in reversed(s.get("blocks", [])):
+                            if blk.get("type") == "plan" and not blk.get("active"):
+                                blk["content"] = content[:5000]
+                                plan_block_id = blk.get("id")
+                                break
+                if plan_block_id is not None:
+                    self._block_update(tab_id, plan_block_id, {"content": content[:5000]})
+                return
+            self._block_add(tab_id, {
+                "type":    "tool_result",
+                "tool":    tool_name,
+                "input":   tool_input,
+                "content": content[:2000],
+            })
+
+        def _normalize_server_tool_name(name):
+            mapping = {
+                "bash_code_execution": "BashCodeExecution",
+                "text_editor_code_execution": "TextEditorCodeExecution",
+                "code_execution": "CodeExecution",
+                "web_search": "WebSearch",
+                "web_fetch": "WebFetch",
+                "tool_search_tool_regex": "ToolSearchRegex",
+                "tool_search_tool_bm25": "ToolSearchBM25",
+            }
+            return mapping.get(str(name or ""), str(name or "ServerTool"))
 
         # ── SDK setup ──────────────────────────────────────────────────────
         env = {}
@@ -1953,7 +2109,7 @@ class ChatNamespace(Namespace):
                                 last_tool_ids.add(tool_id)
                                 tool_name  = block.name
                                 tool_input = block.input
-                                tool_id_to_name[tool_id] = tool_name
+                                _remember_tool_use(tool_id, tool_name, tool_input)
 
                                 if pending_tools:
                                     _flush_tools()
@@ -1984,18 +2140,38 @@ class ChatNamespace(Namespace):
                                 elif tool_name == "ExitPlanMode":
                                     self._block_add(tab_id, {"type": "plan", "active": False})
                                 else:
-                                    tool_block = {
-                                        "type":       "tool_use",
-                                        "tool":       tool_name,
-                                        "input":      tool_input,
-                                        "running":    True,
-                                        "start_time": _time.time(),
-                                    }
-                                    pending_tools.append(tool_block)
-                                    if tool_flush_timer:
-                                        tool_flush_timer.cancel()
-                                    tool_flush_timer = threading.Timer(0.15, _flush_tools)
-                                    tool_flush_timer.start()
+                                    _queue_tool_block(tool_id, tool_name, tool_input)
+
+                            elif isinstance(block, ServerToolUseBlock):
+                                tool_id = block.id
+                                if tool_id in last_tool_ids:
+                                    continue
+                                last_tool_ids.add(tool_id)
+                                tool_name = _normalize_server_tool_name(block.name)
+                                tool_input = block.input
+
+                                if pending_tools:
+                                    _flush_tools()
+                                current_assistant_id = None
+                                current_thinking_id = None
+                                if loading_block_id is not None:
+                                    self._block_update(tab_id, loading_block_id, {"type": "_removed"})
+                                    loading_block_id = None
+                                _queue_tool_block(tool_id, tool_name, tool_input)
+
+                            elif isinstance(block, ServerToolResultBlock):
+                                if tool_flush_timer:
+                                    tool_flush_timer.cancel()
+                                    tool_flush_timer = None
+                                if pending_tools:
+                                    _flush_tools()
+                                result_tool_name, result_tool_input = _mark_tool_done(block.tool_use_id, tool_name)
+                                content = _plain_tool_result_content(block.content)
+                                _add_tool_result_block(result_tool_name, content, result_tool_input)
+                                last_text_len = 0
+                                last_thinking_len = 0
+                                current_assistant_id = None
+                                current_thinking_id = None
 
                     elif isinstance(message, UserMessage):
                         # Route subagent messages into parent agent block
@@ -2018,66 +2194,12 @@ class ChatNamespace(Namespace):
                             if agent_tracker.handle_tool_result(block):
                                 continue
 
-                            result_tool_name = tool_id_to_name.get(block.tool_use_id, tool_name)
-                            content = block.content
-                            if isinstance(content, list):
-                                content = "\n".join(
-                                    c.get("text", "") for c in content
-                                    if isinstance(c, dict) and c.get("type") == "text"
-                                )
-                            content = str(content or "")
+                            result_tool_name, result_tool_input = _mark_tool_done(block.tool_use_id, tool_name)
+                            content = _plain_tool_result_content(block.content)
+                            _add_tool_result_block(result_tool_name, content, result_tool_input)
 
-                            tool_update_patch    = None
-                            tool_update_block_id = None
-                            with _chat_lock:
-                                s = CHAT_SESSIONS.get(tab_id)
-                                if s:
-                                    for blk in reversed(s.get("blocks", [])):
-                                        if blk.get("type") == "tool_use" and blk.get("running"):
-                                            dm = int((_time.time() - blk.get("start_time", _time.time())) * 1000)
-                                            blk["running"]     = False
-                                            blk["duration_ms"] = dm
-                                            tool_update_block_id = blk["id"]
-                                            tool_update_patch    = {"running": False, "duration_ms": dm}
-                                            break
-                                        elif blk.get("type") == "tool_group":
-                                            for t in blk.get("tools", []):
-                                                if t.get("running"):
-                                                    t["running"]     = False
-                                                    t["duration_ms"] = int((_time.time() - t.get("start_time", _time.time())) * 1000)
-                                                    tool_update_block_id = blk["id"]
-                                                    tool_update_patch    = {"tools": [dict(tt) for tt in blk["tools"]]}
-                                                    break
-                                            break
-                            if tool_update_patch is not None:
-                                self._block_update(tab_id, tool_update_block_id, tool_update_patch)
-
-                            # For ExitPlanMode, inject plan content into the plan block
-                            # instead of creating a separate tool_result
-                            if result_tool_name == "EnterPlanMode":
-                                pass  # No tool_result block for EnterPlanMode
-                            elif result_tool_name == "ExitPlanMode":
-                                # Find the plan block and inject content
-                                plan_block_id = None
-                                with _chat_lock:
-                                    s = CHAT_SESSIONS.get(tab_id)
-                                    if s:
-                                        for blk in reversed(s.get("blocks", [])):
-                                            if blk.get("type") == "plan" and not blk.get("active"):
-                                                blk["content"] = content[:5000]
-                                                plan_block_id = blk.get("id")
-                                                break
-                                if plan_block_id is not None:
-                                    self._block_update(tab_id, plan_block_id, {"content": content[:5000]})
-                            else:
-                                self._block_add(tab_id, {
-                                    "type":    "tool_result",
-                                    "tool":    result_tool_name,
-                                    "content": content[:2000],
-                                })
-
-                            if result_tool_name == "Write" and isinstance(tool_input, dict):
-                                file_path = tool_input.get("file_path", "")
+                            if result_tool_name == "Write" and isinstance(result_tool_input, dict):
+                                file_path = result_tool_input.get("file_path", "")
                                 if "/Views/" in file_path and file_path.endswith(".html"):
                                     artifact_filename = file_path.rsplit("/", 1)[-1]
                                     socketio.emit("artifact_updated",
@@ -2131,8 +2253,14 @@ class ChatNamespace(Namespace):
                         } if isinstance(model_usage_raw, dict) else {}
 
                         # Check for SDK errors (e.g. session compaction failure,
-                        # context overflow, bundled CLI crash)
-                        if getattr(message, "is_error", False):
+                        # context overflow, bundled CLI crash).
+                        # Opus 4.7 + 1M beta routinely returns subtype="success"
+                        # with is_error=true and stop_reason="stop_sequence" on
+                        # normal turn completions — the response did stream.
+                        # Treat only real error subtypes as fatal; log the rest
+                        # as a warning and fall through to the success path.
+                        is_real_error = bool(error_subtype) and str(error_subtype).startswith("error_")
+                        if is_real_error or (getattr(message, "is_error", False) and not error_subtype):
                             app.logger.error(
                                 f"SDK ResultMessage error for tab {tab_id[:12]}: "
                                 f"subtype={error_subtype} stop_reason={stop_reason} "
@@ -2168,6 +2296,11 @@ class ChatNamespace(Namespace):
                                 "model_usage":       model_usage,
                             }
                             break  # Exit receive_response loop → will exit while loop via result_data check
+                        elif getattr(message, "is_error", False):
+                            app.logger.warning(
+                                f"SDK is_error=true but subtype={error_subtype} stop_reason={stop_reason} "
+                                f"for tab {tab_id[:12]} — treating as soft completion (opus 4.7 quirk)"
+                            )
 
                         result_data = {
                             "session_id":        message.session_id,
@@ -2352,12 +2485,30 @@ class ChatNamespace(Namespace):
 
                 if not next_msg:
                     # ── No queued messages. Wait for next user message. ──
-                    # Mark session as idle so on_send_message puts into incoming_queue
+                    # Mark session as idle so on_send_message puts into incoming_queue.
+                    # Don't broadcast immediately: any backend write inside the
+                    # grace window (Monitor-triggered turn, late server tool
+                    # result, etc.) will flip session_idle back via the
+                    # auto-resurrect in _block_add/_block_update, and the next
+                    # snapshot will then correctly show the session as live.
+                    # We schedule a delayed broadcast so the indicator does
+                    # eventually flip off if the session truly went quiet.
                     with _chat_lock:
                         sess = CHAT_SESSIONS.get(tab_id)
                         if sess:
                             sess["session_idle"] = True
-                    _broadcast_chat_state()  # Tell frontend we're no longer "active"
+                            sess["last_activity_ts"] = _time.time()
+
+                    def _delayed_idle_broadcast(_tab=tab_id):
+                        _time.sleep(_SESSION_ACTIVITY_GRACE_S + 0.5)
+                        s = CHAT_SESSIONS.get(_tab)
+                        if s and s.get("session_idle"):
+                            try:
+                                _broadcast_chat_state()
+                            except Exception:
+                                pass
+                    threading.Thread(target=_delayed_idle_broadcast, daemon=True).start()
+
                     try:
                         next_msg = await asyncio.wait_for(
                             incoming.get(), timeout=self.PERSISTENT_IDLE_TIMEOUT
@@ -2534,11 +2685,7 @@ class ChatNamespace(Namespace):
                     # Attach extracted assistant text to result_data for GTasks storage
                     if result_data and _klava_result_text:
                         result_data["result_text"] = _klava_result_text
-                    threading.Thread(
-                        target=_klava_complete,
-                        args=(klava_meta["task_id"], result_data, error_str),
-                        daemon=True,
-                    ).start()
+                    _klava_complete(klava_meta["task_id"], result_data, error_str)
                     socketio.emit("klava_done", {
                         "task_id": klava_meta["task_id"],
                         "tab_id": tab_id,
@@ -2655,8 +2802,8 @@ class ChatNamespace(Namespace):
                     if text.strip():
                         blocks.append({"type": "assistant", "id": block_id, "text": text})
                         block_id += 1
-                elif item.get("type") == "tool_use":
-                    tool_name = item.get("name", "")
+                elif item.get("type") in ("tool_use", "server_tool_use"):
+                    tool_name = _history_tool_name(item)
                     tool_input = item.get("input", {})
                     if tool_name == "AskUserQuestion":
                         blocks.append({"type": "question", "id": block_id, "questions": tool_input.get("questions", []), "answered": True})
@@ -2757,8 +2904,7 @@ class ChatNamespace(Namespace):
                     old_sess.get("socket_sids", set()).discard(sid)
             for tid, sess in CHAT_SESSIONS.items():
                 if sess.get("claude_session_id") == session_id or tid == session_id:
-                    is_active = ((sess.get("process") or sess.get("sdk_client")) and not sess.get("process_done") and not sess.get("session_idle")) or (sess.get("_detached_pid") and not sess.get("process_done"))
-                    if is_active:
+                    if _session_is_active(sess):
                         streaming_tab_id = tid
                         # Add this socket to the streaming session
                         sess.setdefault("socket_sids", set()).add(sid)
@@ -3053,8 +3199,8 @@ def _parse_session_entry(entry):
         for item in content_items:
             if item.get("type") == "text":
                 parts.append({"type": "text", "text": item.get("text", "")})
-            elif item.get("type") == "tool_use":
-                tool_name = item.get("name", "")
+            elif item.get("type") in ("tool_use", "server_tool_use"):
+                tool_name = _history_tool_name(item)
                 tool_input = item.get("input", {})
                 parts.append({
                     "type": "tool_use",
@@ -3440,11 +3586,11 @@ def api_session_detail(session_id):
                                 messages.append({"role": "assistant", "text": item.get("text", "")[:2000]})
                             elif item.get("type") == "thinking":
                                 messages.append({"role": "thinking", "text": item.get("thinking", "")[:2000]})
-                            elif item.get("type") == "tool_use":
+                            elif item.get("type") in ("tool_use", "server_tool_use"):
                                 raw_input = item.get("input", {})
                                 messages.append({
                                     "role": "tool",
-                                    "tool": item.get("name", ""),
+                                    "tool": _history_tool_name(item),
                                     "input": raw_input if isinstance(raw_input, dict) else str(raw_input)[:500],
                                 })
 
@@ -3732,8 +3878,8 @@ def api_chat_state_active():
             already = any(e.get("session_id") == session_id for e in _chat_ui_state["active_sessions"])
             if not already:
                 _chat_ui_state["active_sessions"].insert(0, {"tab_id": None, "session_id": session_id})
-                if len(_chat_ui_state["active_sessions"]) > 20:
-                    _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:20]
+                if MAX_ACTIVE_SESSIONS is not None and len(_chat_ui_state["active_sessions"]) > MAX_ACTIVE_SESSIONS:
+                    _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:MAX_ACTIVE_SESSIONS]
         elif action == "remove":
             _chat_ui_state["active_sessions"] = [
                 e for e in _chat_ui_state["active_sessions"]
@@ -3778,7 +3924,8 @@ def api_chat_state_migrate():
             if isinstance(sid, str) and sid not in existing_sids:
                 _chat_ui_state["active_sessions"].insert(0, {"tab_id": None, "session_id": sid})
                 existing_sids.add(sid)
-        _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:20]
+        if MAX_ACTIVE_SESSIONS is not None and len(_chat_ui_state["active_sessions"]) > MAX_ACTIVE_SESSIONS:
+            _chat_ui_state["active_sessions"] = _chat_ui_state["active_sessions"][:MAX_ACTIVE_SESSIONS]
 
         for sid, name in names.items():
             if sid not in _chat_ui_state["session_names"]:
@@ -3867,6 +4014,8 @@ def api_chat_state_cancel():
 
     proc = None
     detached_pid = None
+    sdk_client = None
+    sdk_loop = None
     found_tab = None
     with _chat_lock:
         # Search by claude_session_id or tab_id
@@ -3874,11 +4023,23 @@ def api_chat_state_cancel():
             if sess.get("claude_session_id") == session_id or tab_id == session_id:
                 proc = sess.get("process")
                 detached_pid = sess.get("_detached_pid")
+                sdk_client = sess.get("sdk_client")
+                sdk_loop = sess.get("sdk_loop")
                 found_tab = tab_id
                 break
 
     cancelled = False
-    if proc and proc.poll() is None:
+    # SDK sessions own most modern chats — must be handled BEFORE proc/detached
+    # (the legacy subprocess fields are usually empty when sdk_client is set).
+    if sdk_client and sdk_loop:
+        try:
+            asyncio.run_coroutine_threadsafe(_safe_sdk_disconnect(sdk_client), sdk_loop)
+            app.logger.info(f"Cancelled SDK session {session_id[:12]} (tab {(found_tab or '')[:12]}) via API")
+            cancelled = True
+        except Exception as e:
+            app.logger.error(f"Failed to cancel SDK session {session_id[:12]}: {e}")
+            return jsonify({"error": str(e)}), 500
+    elif proc and proc.poll() is None:
         try:
             proc.terminate()
             app.logger.info(f"Cancelled session {session_id[:12]} (tab {(found_tab or '')[:12]}) via API")

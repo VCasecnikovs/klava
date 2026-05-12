@@ -1319,6 +1319,43 @@ def api_views_open():
         return jsonify({"error": str(e)}), 500
 
 
+@dashboard_bp.route('/api/views/scope', methods=['POST'])
+def api_views_scope():
+    """Set or clear an explicit scope attachment for a view file.
+
+    Body: {"filename": "20260221-foo.html", "scope": "Astrum/" | null}
+    Empty/null scope clears the override (file falls back to inferred scope).
+    Stored in `<vault>/Views/_scopes.json`. Invalidates the views cache so
+    next /api/views call returns fresh data.
+    """
+    try:
+        data = request.json or {}
+        filename = data.get("filename")
+        scope = data.get("scope")
+        if not filename or not isinstance(filename, str):
+            return jsonify({"error": "filename required"}), 400
+        if "/" in filename or ".." in filename:
+            return jsonify({"error": "invalid filename"}), 400
+        try:
+            from tasks.scope import set_view_scope_override
+        except Exception as e:
+            return jsonify({"error": f"scope module unavailable: {e}"}), 500
+        try:
+            set_view_scope_override(filename, scope if scope else None)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        # Bust the views cache so the chip updates immediately.
+        try:
+            from lib.status_collector import _views_cache
+            _views_cache["data"] = None
+            _views_cache["ts"] = 0
+        except Exception:
+            pass
+        return jsonify({"ok": True, "filename": filename, "scope": scope or None})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @dashboard_bp.route('/api/views/serve/<filename>', methods=['GET'])
 def api_views_serve(filename):
     try:

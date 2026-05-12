@@ -16,11 +16,17 @@ const AGENT_STATUS_COLORS: Record<string, string> = {
   processing_message: 'var(--blue)',
 };
 
-function classifySession(s: Session): 'cron' | 'human' {
+function classifySession(s: Session): 'other' | 'human' {
+  // Authoritative: gateway/lib/session_registry.py records `type` for every
+  // session it spawns. Trust that when present.
+  if (s.type === 'user') return 'human';
+  if (s.type === 'cron' || s.type === 'auxiliary') return 'other';
+  // Fallback for sessions that predate the registry or were spawned by
+  // external Claude CLI (no registry entry).
   const p = (s.preview || '').toLowerCase();
-  if (p.startsWith('[heartbeat') || p.includes('heartbeat')) return 'cron';
-  if (p.startsWith('you are synthesizing') || p.includes('screen recording')) return 'cron';
-  if (s.project?.includes('Dayflow')) return 'cron';
+  if (p.startsWith('[heartbeat') || p.includes('heartbeat')) return 'other';
+  if (p.startsWith('you are synthesizing') || p.includes('screen recording')) return 'other';
+  if (s.project?.includes('Dayflow')) return 'other';
   return 'human';
 }
 
@@ -165,8 +171,8 @@ export function ChatSidebar({ onResumeSession, onNewSession }: ChatSidebarProps)
     sessions = allSessions.filter(s => activeIds.has(s.id));
   } else if (sidebarFilter === 'human') {
     sessions = allSessions.filter(s => classifySession(s) === 'human');
-  } else if (sidebarFilter === 'cron') {
-    sessions = allSessions.filter(s => classifySession(s) === 'cron');
+  } else if (sidebarFilter === 'other') {
+    sessions = allSessions.filter(s => classifySession(s) === 'other');
   } else {
     sessions = allSessions;
   }
@@ -175,7 +181,7 @@ export function ChatSidebar({ onResumeSession, onNewSession }: ChatSidebarProps)
 
   const filterBar = (
     <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-      {(['active', 'all', 'human', 'cron'] as SidebarFilter[]).map(f => (
+      {(['active', 'all', 'human', 'other'] as SidebarFilter[]).map(f => (
         <button
           key={f}
           className={`chat-filter-btn${sidebarFilter === f ? ' active' : ''}`}
@@ -253,8 +259,11 @@ export function ChatSidebar({ onResumeSession, onNewSession }: ChatSidebarProps)
               >
                 {isSessionStreaming && <span className="chat-streaming-dot" />}
                 {!isSessionStreaming && isUnread && <span className="chat-unread-dot" />}
-                {kind === 'cron' && (
-                  <span style={{ color: 'var(--yellow)', fontSize: 8, marginRight: 3 }}>&#9679;</span>
+                {kind === 'other' && (
+                  <span
+                    style={{ color: 'var(--yellow)', fontSize: 8, marginRight: 3 }}
+                    title={s.job_id ? `cron: ${s.job_id}` : (s.type || 'non-human session')}
+                  >&#9679;</span>
                 )}
                 {isEditing ? (
                   <input

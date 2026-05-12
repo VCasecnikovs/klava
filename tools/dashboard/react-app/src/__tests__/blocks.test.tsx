@@ -455,6 +455,13 @@ describe('ToolUseBlock', () => {
     const { container } = render(<ToolUseBlock block={block} />);
     expect(container.querySelector('.chat-tool.expanded')).toBeInTheDocument();
   });
+
+  test('auto-expands server-side code execution tools while running', () => {
+    const block: Block = { type: 'tool_use', id: 4, tool: 'BashCodeExecution', input: { command: 'python script.py' }, running: true };
+    const { container } = render(<ToolUseBlock block={block} />);
+    expect(container.querySelector('.chat-tool.expanded')).toBeInTheDocument();
+    expect(container.querySelector('.chat-tool-detail')).toHaveStyle({ display: 'block' });
+  });
 });
 
 // =====================

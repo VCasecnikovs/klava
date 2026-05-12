@@ -34,6 +34,9 @@ vi.mock('@/api/client', () => ({
     chatStateName: vi.fn().mockResolvedValue({}),
     chatStateRead: vi.fn().mockResolvedValue({}),
     chatStateCancel: vi.fn().mockResolvedValue({}),
+    chatScopeGet: vi.fn().mockResolvedValue({ scope: null }),
+    chatScopeSet: vi.fn().mockResolvedValue({ ok: true, scope: null }),
+    scopes: vi.fn().mockResolvedValue({ scopes: [] }),
     uploadFile: vi.fn().mockResolvedValue({ files: [] }),
   },
 }));
@@ -88,12 +91,28 @@ function getMessagesContainer(): HTMLElement {
   return el as HTMLElement;
 }
 
+/** Helper to make a tab/session current before injecting session-bound events. */
+async function activateSession(sessionId: string, label = 'Test Session') {
+  await act(async () => {
+    MockSocket.instance?.simulateEvent('chat_state_sync', {
+      active_sessions: [{ tab_id: null, session_id: sessionId }],
+      session_names: { [sessionId]: label },
+      streaming_sessions: [],
+      unread_sessions: [],
+    });
+  });
+  const item = Array.from(document.querySelectorAll('.chat-sidebar-item'))
+    .find(el => el.textContent?.includes(label)) as HTMLElement;
+  await act(async () => { fireEvent.click(item); });
+}
+
 /** Helper to establish a session with both history and realtime snapshots */
 async function establishSession(socket: MockSocket, tabId: string, opts: {
   historyBlocks?: Array<Record<string, unknown>>;
   realtimeBlocks?: Array<Record<string, unknown>>;
   streaming?: boolean;
 } = {}) {
+  await activateSession(tabId, `Session ${tabId}`);
   const { historyBlocks = [], realtimeBlocks = [], streaming = false } = opts;
   await act(async () => {
     socket.simulateEvent('history_snapshot', {
@@ -233,6 +252,7 @@ describe('Chat integration tests', () => {
 
     const tabId = 'tab-resume-test';
     const sessionId = 'session-resume-123';
+    await activateSession(sessionId, 'Resume Session');
 
     // Simulate a full history_snapshot (as received when resuming a completed session)
     await act(async () => {
@@ -292,24 +312,11 @@ describe('Chat integration tests', () => {
     const { socket } = await renderChat();
 
     const correctTabId = 'correct-tab';
-
-    // Establish session with history blocks
-    await act(async () => {
-      socket.simulateEvent('history_snapshot', {
-        blocks: [
-          { type: 'user', id: 0, text: 'original', files: [] },
-          { type: 'assistant', id: 1, text: 'original reply' },
-        ],
-        session_id: correctTabId,
-      });
-    });
-    await act(async () => {
-      socket.simulateEvent('realtime_snapshot', {
-        blocks: [],
-        streaming: false,
-        queue: [],
-        tab_id: correctTabId,
-      });
+    await establishSession(socket, correctTabId, {
+      historyBlocks: [
+        { type: 'user', id: 0, text: 'original', files: [] },
+        { type: 'assistant', id: 1, text: 'original reply' },
+      ],
     });
 
     // Verify we have 1 assistant message in history
@@ -378,6 +385,56 @@ describe('Chat integration tests', () => {
     expect(container.querySelector('.chat-msg-user')!.textContent).toContain('after reconnect');
   });
 
+  test('realtime_done preserves final block update that arrived in the same tick', async () => {
+    const { socket } = await renderChat();
+    const tabId = 'tab-final-update-race';
+    await establishSession(socket, tabId, {
+      streaming: true,
+      realtimeBlocks: [
+        { type: 'user', id: 0, text: 'say final', files: [] },
+        { type: 'assistant', id: 1, text: '' },
+      ],
+    });
+
+    await act(async () => {
+      socket.simulateEvent('realtime_block_update', {
+        id: 1,
+        patch: { text: 'Final answer survived.' },
+        tab_id: tabId,
+      });
+      socket.simulateEvent('realtime_done', { has_next: false, tab_id: tabId });
+    });
+
+    expect(document.querySelector('.chat-msg-user')?.textContent).toContain('say final');
+    expect(document.querySelector('.chat-msg-assistant')?.textContent).toContain('Final answer survived.');
+    expect(document.querySelectorAll('.chat-msg-assistant').length).toBe(1);
+  });
+
+  test('new chat fast finish keeps optimistic user block when realtime_done arrives quickly', async () => {
+    const { socket } = await renderChat();
+    const textarea = document.querySelector('.chat-input') as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'fast question' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', charCode: 13 });
+    });
+
+    const send = MockSocket.emitted.find(e => e.event === 'send_message');
+    const tabId = (send?.args[0] as { tab_id?: string })?.tab_id;
+    expect(tabId).toBeTruthy();
+
+    await act(async () => {
+      socket.simulateEvent('realtime_block_add', {
+        block: { type: 'assistant', id: 1, text: 'fast answer' },
+        tab_id: tabId,
+      });
+      socket.simulateEvent('realtime_done', { has_next: false, tab_id: tabId });
+    });
+
+    expect(document.querySelector('.chat-msg-user')?.textContent).toContain('fast question');
+    expect(document.querySelector('.chat-msg-assistant')?.textContent).toContain('fast answer');
+  });
+
   // ---- Test 6: queue panel never renders ----
   test('queue panel is NOT rendered when queue_update arrives', async () => {
     const { socket } = await renderChat();
@@ -400,7 +457,83 @@ describe('Chat integration tests', () => {
     expect(document.querySelector('.chat-queue-panel')).not.toBeInTheDocument();
   });
 
-  // ---- Test 7: input clears after send even on stale draft_sync ----
+  // ---- Test 7: per-session model/effort restore ----
+  test('switching sessions restores saved model and effort per session', async () => {
+    const { socket } = await renderChat();
+    const sessA = 'session-a';
+    const sessB = 'session-b';
+
+    localStorage.setItem('chat_session_settings', JSON.stringify({
+      [sessA]: { model: 'opus[1m]', effort: 'max' },
+      [sessB]: { model: 'sonnet', effort: 'low' },
+    }));
+
+    await act(async () => {
+      socket.simulateEvent('chat_state_sync', {
+        active_sessions: [
+          { tab_id: null, session_id: sessA },
+          { tab_id: null, session_id: sessB },
+        ],
+        session_names: { [sessA]: 'Session A', [sessB]: 'Session B' },
+        streaming_sessions: [],
+        unread_sessions: [],
+      });
+    });
+
+    const sessionAItem = Array.from(document.querySelectorAll('.chat-sidebar-item'))
+      .find(el => el.textContent?.includes('Session A')) as HTMLElement;
+    const sessionBItem = Array.from(document.querySelectorAll('.chat-sidebar-item'))
+      .find(el => el.textContent?.includes('Session B')) as HTMLElement;
+    expect(sessionAItem).toBeInTheDocument();
+    expect(sessionBItem).toBeInTheDocument();
+
+    await act(async () => { fireEvent.click(sessionAItem); });
+    expect((document.querySelector('select[title="Model"]') as HTMLSelectElement).value).toBe('opus[1m]');
+    expect((document.querySelector('select[title="Reasoning effort"]') as HTMLSelectElement).value).toBe('max');
+
+    await act(async () => { fireEvent.click(sessionBItem); });
+    expect((document.querySelector('select[title="Model"]') as HTMLSelectElement).value).toBe('sonnet');
+    expect((document.querySelector('select[title="Reasoning effort"]') as HTMLSelectElement).value).toBe('low');
+
+    await act(async () => { fireEvent.click(sessionAItem); });
+    expect((document.querySelector('select[title="Model"]') as HTMLSelectElement).value).toBe('opus[1m]');
+    expect((document.querySelector('select[title="Reasoning effort"]') as HTMLSelectElement).value).toBe('max');
+  });
+
+  test('history model detection does not overwrite saved 1M model variant', async () => {
+    const { socket } = await renderChat();
+    const sessionId = 'session-with-1m';
+
+    localStorage.setItem('chat_session_settings', JSON.stringify({
+      [sessionId]: { model: 'opus[1m]', effort: 'high' },
+    }));
+
+    await act(async () => {
+      socket.simulateEvent('chat_state_sync', {
+        active_sessions: [{ tab_id: null, session_id: sessionId }],
+        session_names: { [sessionId]: '1M Session' },
+        streaming_sessions: [],
+        unread_sessions: [],
+      });
+    });
+
+    const item = Array.from(document.querySelectorAll('.chat-sidebar-item'))
+      .find(el => el.textContent?.includes('1M Session')) as HTMLElement;
+    await act(async () => { fireEvent.click(item); });
+
+    await act(async () => {
+      socket.simulateEvent('history_snapshot', {
+        blocks: [{ type: 'assistant', id: 0, text: 'saved session' }],
+        session_id: sessionId,
+        model: 'claude-opus-4-7',
+      });
+    });
+
+    expect((document.querySelector('select[title="Model"]') as HTMLSelectElement).value).toBe('opus[1m]');
+  });
+
+
+  // ---- Test 8: input clears after send even on stale draft_sync ----
   test('input draft clears after send even when chat_state_sync has stale draft', async () => {
     const { socket } = await renderChat();
     const tabId = 'tab-draft-clear-test';

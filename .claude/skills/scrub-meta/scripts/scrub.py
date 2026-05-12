@@ -364,10 +364,37 @@ def verify(out: Path, terms: list[str], category: str) -> tuple[bool, list[str]]
                         issues.append(f"leak term '{t}' in {f.relative_to(tdp)}")
     else:
         snap = exif_snapshot(out)
-        joined = json.dumps(snap).lower()
+        # Restrict leak-term grep to known identity-bearing tags so legitimate
+        # content (e.g. "Level" matching short term "Lev") doesn't false-flag.
+        IDENTITY_TAGS = {
+            "author", "creator", "producer", "lastmodifiedby", "owner",
+            "title", "subject", "keywords", "description", "comment", "comments",
+            "artist", "copyright", "make", "model", "software", "hostcomputer",
+            "ownername", "serialnumber", "lensserialnumber", "cameraownername",
+            "xmp:author", "xmp:creator", "xmp:producer", "xmp:title", "xmp:description",
+            "xmp-dc:creator", "xmp-dc:title", "xmp-dc:description",
+            "xmp-pdf:producer", "xmp-pdf:author",
+            "pdf:author", "pdf:creator", "pdf:producer", "pdf:title",
+            "creatortool", "metadatadate", "createdate", "modifydate",
+            "applicationname", "company", "manager",
+        }
+        identity_blob_parts: list[str] = []
+        for record in snap:
+            for k, v in record.items():
+                key = k.split(":", 1)[-1].lower()  # strip "EXIF:" / "XMP:" group prefixes
+                if key in IDENTITY_TAGS or any(t in key for t in ("author", "creator", "owner", "artist")):
+                    identity_blob_parts.append(f"{k}={v}")
+        joined = "\n".join(identity_blob_parts).lower()
+        # Word-boundary match: short terms like "Lev" must not match "Level".
+        # Use regex with \b on both sides for ASCII tokens; non-ASCII just substring.
         for t in terms:
-            if t.lower() in joined:
-                issues.append(f"leak term '{t}' in exiftool output")
+            tl = t.lower()
+            if tl.isascii() and tl.isalnum():
+                if re.search(rf"\b{re.escape(tl)}\b", joined):
+                    issues.append(f"leak term '{t}' in metadata identity tag")
+            else:
+                if tl in joined:
+                    issues.append(f"leak term '{t}' in metadata identity tag")
     rt = run(["bash", "-c", f"base64 -i '{out}' | base64 -D | shasum -a 256"]).stdout.strip().split()[0]
     direct = run(["shasum", "-a", "256", str(out)]).stdout.strip().split()[0]
     if rt != direct:
@@ -415,6 +442,7 @@ def main() -> None:
     ap.add_argument("file", type=Path)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--terms", type=str, default=None)
+    ap.add_argument("--reveal", action="store_true", help="reveal output in Finder (default off; was always-on and spawned a window per file in batch use)")
     args = ap.parse_args()
 
     src = args.file.expanduser().resolve()
@@ -431,7 +459,8 @@ def main() -> None:
     terms = load_leak_terms(args.terms)
     ok, issues = verify(out, terms, category)
     report(src, out, category, mime, info, notes, ok, issues)
-    run(["open", "-R", str(out)])
+    if args.reveal:
+        run(["open", "-R", str(out)])
     if not ok:
         sys.exit(1)
 

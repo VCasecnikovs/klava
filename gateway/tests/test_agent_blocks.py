@@ -190,6 +190,30 @@ class TestAgentBlockTracker:
         assert len(self.blocks[0]["agent_blocks"]) == 2
         assert self.blocks[0]["agent_blocks"][1]["type"] == "tool_result"
 
+    def test_subagent_tool_result_marks_matching_tool_done(self):
+        """Regression: parallel subagent tool results must not complete the newest tool blindly."""
+        self.tracker.handle_tool_use(FakeToolUseBlock(
+            id="agent_1", name="Task", input={"description": "Research", "prompt": "..."}
+        ))
+        self.tracker.handle_message(FakeAssistantMessage(
+            content=[
+                FakeToolUseBlock(id="sub_tool_1", name="Read", input={"file_path": "/a.txt"}),
+                FakeToolUseBlock(id="sub_tool_2", name="Bash", input={"command": "sleep 1"}),
+            ],
+            parent_tool_use_id="agent_1",
+        ))
+
+        self.tracker.handle_message(FakeUserMessage(
+            content=[FakeToolResultBlock(tool_use_id="sub_tool_1", content="file contents", is_error=False)],
+            parent_tool_use_id="agent_1",
+        ))
+
+        agent_blocks = self.blocks[0]["agent_blocks"]
+        read_tool = agent_blocks[0]
+        bash_tool = agent_blocks[1]
+        assert read_tool["running"] is False
+        assert bash_tool["running"] is True
+
     def test_subagent_thinking_routed(self):
         """Subagent thinking blocks go into agent_blocks."""
         tool_block = FakeToolUseBlock(
@@ -421,3 +445,53 @@ class TestAgentBlockTracker:
         )
         result = self.tracker.handle_stream_event(event)
         assert result is True  # handled (suppressed from main chat)
+
+    def test_task_notification_does_not_flip_running(self):
+        """Regression: TaskNotificationMessage must NOT mark the agent block
+        as running=False. ToolResultBlock is the canonical terminal signal.
+
+        Bug (2026-05-06): when SDK delivered TaskNotificationMessage before
+        all subagent stream events drained, the UI rendered "completed" with
+        an empty body - the agent block looked like it did nothing.
+        """
+        class FakeTaskNotification:
+            def __init__(self, tool_use_id, status, summary=None, usage=None):
+                self.tool_use_id = tool_use_id
+                self.status = status
+                self.summary = summary
+                self.usage = usage
+
+        self.tracker.handle_tool_use(FakeToolUseBlock(
+            id="agent_1", name="Agent", input={"description": "Research", "prompt": "..."}
+        ))
+        assert self.blocks[0]["running"] is True
+
+        # SDK emits notification mid-stream
+        self.tracker.handle_task_notification(FakeTaskNotification(
+            tool_use_id="agent_1", status="completed", summary="Done"
+        ))
+
+        # Block must still be running - sub-events haven't drained yet
+        assert self.blocks[0]["running"] is True
+        assert self.blocks[0].get("status") == "completed"
+        assert self.blocks[0].get("summary") == "Done"
+
+        # Only ToolResultBlock flips running=False
+        self.tracker.handle_tool_result(FakeToolResultBlock(tool_use_id="agent_1"))
+        assert self.blocks[0]["running"] is False
+
+    def test_duration_uses_real_start_time(self):
+        """Regression: duration_ms must measure from handle_tool_use to
+        handle_tool_result, not be ~0. _get_start_time was a stub returning
+        time.time() so duration always read 0.
+        """
+        import time as _time
+
+        self.tracker.handle_tool_use(FakeToolUseBlock(
+            id="agent_1", name="Agent", input={"description": "Research", "prompt": "..."}
+        ))
+        _time.sleep(0.05)
+        self.tracker.handle_tool_result(FakeToolResultBlock(tool_use_id="agent_1"))
+
+        duration = self.blocks[0].get("duration_ms", 0)
+        assert duration >= 40, f"expected duration ~50ms, got {duration}"

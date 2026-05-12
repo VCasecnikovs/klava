@@ -4631,6 +4631,14 @@ def collect_views_data() -> Dict:
     if _views_cache["data"] and (now - _views_cache["ts"]) < _VIEWS_CACHE_TTL:
         return _views_cache["data"]
 
+    # Resolve scope per view: explicit Views/_scopes.json wins, else infer.
+    try:
+        from tasks.scope import load_view_scope_overrides, infer_scope as _infer_scope
+        scope_overrides = load_view_scope_overrides()
+    except Exception:
+        scope_overrides = {}
+        _infer_scope = None
+
     views = []
     if VIEWS_DIR.exists():
         for filepath in sorted(VIEWS_DIR.glob("*.html"), key=lambda f: f.stat().st_mtime, reverse=True):
@@ -4654,6 +4662,14 @@ def collect_views_data() -> Dict:
                 # Count annotation marks (feedback module)
                 annotation_count = content.count('class="annotation-mark')
 
+                explicit_scope = scope_overrides.get(filepath.name)
+                inferred_scope = None
+                if not explicit_scope and _infer_scope is not None:
+                    try:
+                        inferred_scope = _infer_scope(filepath.stem + " " + content)
+                    except Exception:
+                        inferred_scope = None
+
                 views.append({
                     "filename": filepath.name,
                     "title": title,
@@ -4663,6 +4679,8 @@ def collect_views_data() -> Dict:
                     "modified_ago": _time_ago(datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()),
                     "annotations": annotation_count,
                     "path": str(filepath),
+                    "scope": explicit_scope or inferred_scope,
+                    "scope_explicit": bool(explicit_scope),
                 })
             except Exception:
                 continue

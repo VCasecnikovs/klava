@@ -168,6 +168,8 @@ export const api = {
 
   // === Scopes ===
   scopes: () => apiFetch<{ scopes: string[] }>('/api/scopes'),
+  setViewScope: (filename: string, scope: string | null) =>
+    apiPost('/api/views/scope', { filename, scope }) as Promise<{ ok: boolean; filename: string; scope: string | null }>,
   scopeItems: (scope: string, limit = 10) =>
     apiFetch<ScopeItemsData>(
       `/api/scopes/${scope.split('/').filter(Boolean).map(encodeURIComponent).join('/')}/items?limit=${limit}`

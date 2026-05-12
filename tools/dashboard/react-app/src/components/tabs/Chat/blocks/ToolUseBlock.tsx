@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { esc } from '@/lib/utils';
-import { getToolConfig, getToolSummary, formatToolInput } from '../toolRegistry';
+import { getToolConfig, getToolSummary, formatToolInput, getToolMeta } from '../toolRegistry';
 import type { Block } from '@/context/ChatContext';
 
 export function ToolUseBlock({ block }: { block: Block }) {
-  const [expanded, setExpanded] = useState(block.tool === 'Task' && !!block.running);
+  const [expanded, setExpanded] = useState(!!block.running && ['Task', 'Agent', 'BashCodeExecution', 'CodeExecution', 'TextEditorCodeExecution'].includes(block.tool || ''));
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerElRef = useRef<HTMLDivElement>(null);
   const toolName = block.tool || '';
   const reg = getToolConfig(toolName);
+  const meta = getToolMeta(toolName);
   const input = (typeof block.input === 'object' && block.input !== null) ? block.input : {};
   const inputStr = (typeof block.input === 'object' && block.input !== null) ? JSON.stringify(block.input, null, 2) : String(block.input || '');
   const summary = getToolSummary(toolName, input) || inputStr.substring(0, 60);
@@ -51,9 +52,17 @@ export function ToolUseBlock({ block }: { block: Block }) {
       } as React.CSSProperties}
     >
       <div className="chat-tool-header" onClick={() => setExpanded(e => !e)}>
+        <span className="chat-tool-rail" aria-hidden="true" />
         <span className="chat-tool-icon" dangerouslySetInnerHTML={{ __html: reg.icon }} />
-        <span className="chat-tool-name">{esc(toolName)}</span>
-        <span className="chat-tool-summary">{esc(summary)}</span>
+        <span className="chat-tool-main">
+          <span className="chat-tool-title-row">
+            <span className="chat-tool-category">{esc(meta.category)}</span>
+            <span className="chat-tool-name">{esc(toolName)}</span>
+            <span className={`chat-tool-permission ${meta.permission}`}>{meta.permission === 'approval' ? 'asks' : meta.permission}</span>
+            {meta.origin && <span className="chat-tool-origin">{esc(meta.origin)}</span>}
+          </span>
+          <span className="chat-tool-summary">{esc(summary || meta.action || meta.verb)}</span>
+        </span>
         {isRunning && <span className="chat-tool-spinner" />}
         {durationStr && <span className="chat-tool-duration">{durationStr}</span>}
       </div>

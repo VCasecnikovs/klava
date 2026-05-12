@@ -171,6 +171,16 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
   // Refs for mutable state accessed in event handlers (to avoid stale closures)
   const stateRef = useRef(state);
   stateRef.current = state;
+  const historyBlocksRef = useRef<Block[]>(state.historyBlocks);
+  const realtimeBlocksRef = useRef<Block[]>(state.realtimeBlocks);
+
+  useEffect(() => {
+    historyBlocksRef.current = historyBlocks;
+  }, [historyBlocks]);
+
+  useEffect(() => {
+    realtimeBlocksRef.current = realtimeBlocks;
+  }, [realtimeBlocks]);
 
   // Session identity ref updated SYNCHRONOUSLY by click handlers (handleResumeSession,
   // handleNewSession, chatStartStream) before any dispatch. Socket event filters use
@@ -181,6 +191,26 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     tabId: state.tabId,
     claudeSessionId: state.claudeSessionId,
   });
+
+  const currentSessionHasExplicitSettingsRef = useRef(false);
+
+  const getSavedSessionSettings = useCallback((...ids: Array<string | null | undefined>) => {
+    try {
+      const map = JSON.parse(localStorage.getItem('chat_session_settings') || '{}');
+      for (const id of ids) {
+        if (id && map[id]) return map[id] as { model?: string; effort?: string };
+      }
+    } catch { /* ignore corrupt localStorage */ }
+    return null;
+  }, []);
+
+  const restoreSessionSettings = useCallback((...ids: Array<string | null | undefined>) => {
+    const saved = getSavedSessionSettings(...ids);
+    currentSessionHasExplicitSettingsRef.current = Boolean(saved);
+    dispatch({ type: 'RESTORE_MODEL', model: saved?.model || 'opus' });
+    dispatch({ type: 'RESTORE_EFFORT', effort: saved?.effort || 'high' });
+    return saved;
+  }, [dispatch, getSavedSessionSettings]);
 
   // --- Changes panel ---
   const [changesOpen, setChangesOpen] = useState(false);
@@ -289,8 +319,9 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       dispatch({ type: 'SET_CONNECTED', connected: true });
       dispatch({ type: 'RESET_RECONNECT' });
       const s = stateRef.current;
-      if (s.wasConnected && s.claudeSessionId && socketRef.current?.connected) {
-        socketRef.current.emit('watch_session', { session_id: s.claudeSessionId });
+      const resumeId = s.claudeSessionId || s.tabId;
+      if (s.wasConnected && resumeId && socketRef.current?.connected) {
+        socketRef.current.emit('watch_session', { session_id: resumeId });
       }
       dispatch({ type: 'SET_WAS_CONNECTED', value: true });
     };
@@ -328,6 +359,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       dispatch({ type: 'RESET_ARTIFACTS' });
       extractArtifactsFromBlocks(data.blocks, dispatch);
 
+      historyBlocksRef.current = data.blocks;
       dispatch({ type: 'HISTORY_SNAPSHOT', blocks: data.blocks });
 
       // Restore session mode from last plan block in history
@@ -336,8 +368,10 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         dispatch({ type: 'SET_SESSION_MODE', mode: lastPlanBlock.active ? 'plan' : 'bypass' });
       }
 
-      // Auto-detect model from session history
-      if (data.model) {
+      // Auto-detect model from history only when this session has no explicit UI choice.
+      // Explicit settings preserve variants like opus[1m], which backend history only
+      // reports as the resolved base model.
+      if (data.model && !currentSessionHasExplicitSettingsRef.current) {
         const modelMap: Record<string, string> = {
           'claude-opus-4-7': 'opus',
           'claude-opus-4-7-20260401': 'opus',
@@ -348,7 +382,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
           'claude-haiku-4-5-20251001': 'haiku',
         };
         const uiModel = modelMap[data.model] || (data.model.includes('opus') ? 'opus' : data.model.includes('sonnet') ? 'sonnet' : data.model.includes('haiku') ? 'haiku' : null);
-        if (uiModel) dispatch({ type: 'SET_MODEL', model: uiModel });
+        if (uiModel) dispatch({ type: 'RESTORE_MODEL', model: uiModel });
       }
     };
 
@@ -358,6 +392,9 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         return;
       }
       // From file watcher (external sessions)
+      if (!historyBlocksRef.current.some(b => b.id === data.block.id)) {
+        historyBlocksRef.current = [...historyBlocksRef.current, data.block];
+      }
       dispatch({ type: 'HISTORY_BLOCK_ADD', block: data.block });
 
       // Auto-toggle Mode for plan blocks from history
@@ -400,8 +437,18 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       // real owner). For non-streaming watch, keep the tabId the frontend
       // already set in handleResumeSession.
       if (data.streaming && data.tab_id) {
+        // SYNC currentIdsRef before dispatch — subsequent realtime_block_add
+        // events arrive carrying the backend tab_id, and isForeignEvent reads
+        // currentIdsRef synchronously. If we only dispatched, those events
+        // would be dropped as foreign until React's next render committed the
+        // new tabId, leaving the user with a snapshot but no live updates.
+        currentIdsRef.current = {
+          ...currentIdsRef.current,
+          tabId: data.tab_id,
+        };
         dispatch({ type: 'SET_TAB_ID', tabId: data.tab_id });
       }
+      realtimeBlocksRef.current = data.blocks;
       dispatch({ type: 'REALTIME_SNAPSHOT', blocks: data.blocks });
 
       // Track task tools from realtime blocks
@@ -458,12 +505,19 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         dispatch({ type: 'SET_SESSION_MODE', mode: data.block.active ? 'plan' : 'bypass' });
       }
 
+      if (!realtimeBlocksRef.current.some(b => b.id === data.block.id)) {
+        realtimeBlocksRef.current = [...realtimeBlocksRef.current, data.block];
+      }
       dispatch({ type: 'REALTIME_BLOCK_ADD', block: data.block });
 
       // Side effects for cost/error blocks
       if (data.block.type === 'cost') {
         if (data.block.session_id) {
           const s = stateRef.current;
+          currentIdsRef.current = {
+            ...currentIdsRef.current,
+            claudeSessionId: data.block.session_id,
+          };
           dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: data.block.session_id });
           if (s.tabId) {
             dispatch({ type: 'UPDATE_SESSION_REAL_ID', tabId: s.tabId, realId: data.block.session_id });
@@ -484,6 +538,9 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         }
       }
 
+      realtimeBlocksRef.current = realtimeBlocksRef.current.map(b => (
+        b.id === data.id ? { ...b, ...data.patch } : b
+      ));
       dispatch({ type: 'REALTIME_BLOCK_UPDATE', id: data.id, patch: data.patch });
     };
 
@@ -493,10 +550,11 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         return;
       }
       console.log('[realtime_done] has_next:', data.has_next);
-      const s = stateRef.current;
+      const frozenBlocks = [...historyBlocksRef.current, ...realtimeBlocksRef.current];
+      historyBlocksRef.current = frozenBlocks;
+      realtimeBlocksRef.current = [];
 
-      // Freeze realtime blocks into history
-      dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [...s.historyBlocks, ...s.realtimeBlocks] });
+      dispatch({ type: 'HISTORY_SNAPSHOT', blocks: frozenBlocks });
       dispatch({ type: 'REALTIME_RESET' });
 
       if (data.has_next) {
@@ -565,8 +623,10 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       // before reset. Without this, everything streamed pre-cancel vanishes
       // from the chat until the user leaves and re-enters the session
       // (server still has them in CHAT_SESSIONS['blocks']).
-      const s = stateRef.current;
-      dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [...s.historyBlocks, ...s.realtimeBlocks] });
+      const frozenBlocks = [...historyBlocksRef.current, ...realtimeBlocksRef.current];
+      historyBlocksRef.current = frozenBlocks;
+      realtimeBlocksRef.current = [];
+      dispatch({ type: 'HISTORY_SNAPSHOT', blocks: frozenBlocks });
       dispatch({ type: 'REALTIME_RESET' });
     };
 
@@ -579,6 +639,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       currentIdsRef.current = { tabId: null, claudeSessionId: null };
       dispatch({ type: 'SET_TAB_ID', tabId: null });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
+      historyBlocksRef.current = [];
+      realtimeBlocksRef.current = [];
       dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [] });
       dispatch({ type: 'REALTIME_RESET' });
     };
@@ -617,7 +679,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       socket.off('cancelled', onCancelled);
       socket.off('session_not_found', onSessionNotFound);
     };
-  }, [socketConnected, socketRef, dispatch, messagesRef, scrollBottom, handleTaskToolUse, streamingTextRef]);
+  }, [socketConnected, socketRef, dispatch, messagesRef, scrollBottom, handleTaskToolUse, streamingTextRef, getSavedSessionSettings]);
 
   // --- Load sidebar sessions on mount ---
   useEffect(() => {
@@ -671,7 +733,9 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     dispatch({ type: 'SET_STREAM_START', time: Date.now() });
 
     // Optimistic user block at id 0 (realtime always starts fresh)
-    dispatch({ type: 'REALTIME_BLOCK_ADD', block: { type: 'user', id: 0, text, files: files.length > 0 ? files : undefined } });
+    const userBlock: Block = { type: 'user', id: 0, text, files: files.length > 0 ? files : undefined };
+    realtimeBlocksRef.current = [userBlock];
+    dispatch({ type: 'REALTIME_BLOCK_ADD', block: userBlock });
 
     const payload: Record<string, unknown> = {
       prompt: text,
@@ -707,8 +771,20 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       dispatch({ type: 'SET_SIDEBAR_FILTER', filter: 'active' });
     }
 
+    // Same persistence as the Socket.IO path: HTTP fallback must not create
+    // sessions whose model resets when the user switches away and back.
+    if (currentTabId) {
+      try {
+        const map = JSON.parse(localStorage.getItem('chat_session_settings') || '{}');
+        map[currentTabId] = { ...(map[currentTabId] || {}), model: s.model, effort: s.effort };
+        localStorage.setItem('chat_session_settings', JSON.stringify(map));
+      } catch {}
+    }
+
     dispatch({ type: 'SET_REALTIME_STATUS', status: 'streaming' });
-    dispatch({ type: 'REALTIME_BLOCK_ADD', block: { type: 'user', id: 0, text, files: files.length > 0 ? files : undefined } });
+    const userBlock: Block = { type: 'user', id: 0, text, files: files.length > 0 ? files : undefined };
+    realtimeBlocksRef.current = [userBlock];
+    dispatch({ type: 'REALTIME_BLOCK_ADD', block: userBlock });
 
     const payload: { prompt: string; tab_id: string; model: string; effort: string; resume_session_id?: string; files?: Array<{ name: string; path: string; type: string }> } = {
       prompt: text,
@@ -789,6 +865,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     currentIdsRef.current = { tabId: null, claudeSessionId: null };
     dispatch({ type: 'SET_TAB_ID', tabId: null });
     dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
+    historyBlocksRef.current = [];
+    realtimeBlocksRef.current = [];
     dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [] });
     dispatch({ type: 'REALTIME_RESET' });
     dispatch({ type: 'SET_REALTIME_STATUS', status: 'idle' });
@@ -797,8 +875,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     dispatch({ type: 'RESET_ARTIFACTS' });
     dispatch({ type: 'SET_PERMISSION_MODE', mode: 'ask' });
     // Reset to global defaults for new session
-    dispatch({ type: 'SET_MODEL', model: localStorage.getItem('chat_model') || 'opus' });
-    dispatch({ type: 'SET_EFFORT', effort: localStorage.getItem('chat_effort') || 'high' });
+    dispatch({ type: 'RESTORE_MODEL', model: localStorage.getItem('chat_model') || 'opus' });
+    dispatch({ type: 'RESTORE_EFFORT', effort: localStorage.getItem('chat_effort') || 'high' });
   }, [chatStopWatching, socketRef, dispatch]);
 
   // Listen for cross-tab "send to new session" events (e.g. from Tasks tab,
@@ -821,6 +899,32 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     return () => window.removeEventListener('chat:new-session', handler);
   }, [handleNewSession, handleSend]);
 
+  // Listen for "open chat as a fresh tab pre-bound to this tab_id" (Scopes tab).
+  // Caller has already POSTed /api/chat/scope for this tab_id, so the
+  // ScopePicker will pick it up once we adopt the id. We reset session state
+  // and SET_TAB_ID so the picker re-fetches scope, then add an empty draft
+  // entry to the sidebar.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const newTabId = detail.tab_id;
+      if (!newTabId) return;
+      handleNewSession();
+      currentIdsRef.current = { tabId: newTabId, claudeSessionId: null };
+      dispatch({ type: 'SET_TAB_ID', tabId: newTabId });
+      dispatch({ type: 'ADD_SESSION', session: {
+        id: newTabId,
+        date: new Date().toISOString(),
+        preview: '(new chat)',
+        messages: 0,
+        is_active: false,
+      }});
+      dispatch({ type: 'SET_SIDEBAR_FILTER', filter: 'active' });
+    };
+    window.addEventListener('chat:open-new-tab', handler);
+    return () => window.removeEventListener('chat:open-new-tab', handler);
+  }, [handleNewSession, dispatch]);
+
   // Per-message fork: UserBlock dispatches chat:fork-from-block with a block id.
   // Call backend, then switch this tab to the newly-created forked tab.
   useEffect(() => {
@@ -842,6 +946,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         chatStopWatching();
         dispatch({ type: 'SET_TAB_ID', tabId: res.tab_id });
         dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
+        historyBlocksRef.current = [];
+        realtimeBlocksRef.current = [];
         dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [] });
         dispatch({ type: 'REALTIME_RESET' });
         dispatch({ type: 'SET_REALTIME_STATUS', status: 'streaming' });
@@ -881,19 +987,14 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       currentIdsRef.current = { tabId: sid, claudeSessionId: null };
       dispatch({ type: 'SET_TAB_ID', tabId: sid });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: null });
+      restoreSessionSettings(sid);
     } else {
       const newTabId = uuid();
       currentIdsRef.current = { tabId: newTabId, claudeSessionId: sid };
       dispatch({ type: 'SET_TAB_ID', tabId: newTabId });
       dispatch({ type: 'SET_CLAUDE_SESSION_ID', claudeSessionId: sid });
 
-      // Restore per-session model/effort (fallback to hardcoded defaults, not global)
-      try {
-        const map = JSON.parse(localStorage.getItem('chat_session_settings') || '{}');
-        const saved = map[sid];
-        dispatch({ type: 'SET_MODEL', model: saved?.model || 'opus' });
-        dispatch({ type: 'SET_EFFORT', effort: saved?.effort || 'high' });
-      } catch {}
+      restoreSessionSettings(sid, newTabId);
 
       if (stateRef.current.unreadSessions.has(sid)) {
         api.chatStateRead(sid).catch(() => {});
@@ -905,6 +1006,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     // switching to "active" and then getting session_not_found causes it to vanish
 
     // Clear both entities and show loading state
+    historyBlocksRef.current = [];
+    realtimeBlocksRef.current = [];
     dispatch({ type: 'HISTORY_SNAPSHOT', blocks: [] });
     dispatch({ type: 'REALTIME_RESET' });
     dispatch({ type: 'SET_REALTIME_STATUS', status: 'idle' });
@@ -915,7 +1018,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     if (socketRef.current?.connected) {
       socketRef.current.emit('watch_session', { session_id: sid });
     }
-  }, [chatStopWatching, dispatch, scrollBottom, socketRef]);
+  }, [chatStopWatching, dispatch, restoreSessionSettings, scrollBottom, socketRef]);
 
   // Listen for cross-tab "resume session" events (e.g. from Feed tab)
   useEffect(() => {

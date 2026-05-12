@@ -381,15 +381,86 @@ _VIEW_H1_RE = re.compile(r"<h1[^>]*>([^<]{1,200})</h1>", re.IGNORECASE)
 _VIEWS_LIMIT = 20
 
 
+def _view_scopes_path() -> Path:
+    return vault_root() / "Views" / "_scopes.json"
+
+
+def load_view_scope_overrides() -> Dict[str, str]:
+    """Load explicit filename → scope overrides for views.
+
+    Stored as a sidecar JSON in `<vault>/Views/_scopes.json`. Empty / invalid
+    entries are dropped. Returned scopes are validated.
+    """
+    import json
+    path = _view_scopes_path()
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, str] = {}
+    for fname, scope in raw.items():
+        if not isinstance(fname, str) or not isinstance(scope, str):
+            continue
+        norm = validate_scope(scope)
+        if norm:
+            out[fname] = norm
+    return out
+
+
+def set_view_scope_override(filename: str, scope: Optional[str]) -> None:
+    """Set or clear an explicit scope attachment for a view file.
+
+    Pass `scope=None` (or empty) to clear the override (revert to inferred).
+    Writes the JSON sidecar atomically. Filename is taken as-is — caller is
+    responsible for sanitizing.
+    """
+    import json
+    import tempfile
+    if not isinstance(filename, str) or not filename.strip():
+        raise ValueError("filename required")
+    path = _view_scopes_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    overrides = load_view_scope_overrides()
+    if scope:
+        norm = validate_scope(scope)
+        if not norm:
+            raise ValueError(f"invalid scope: {scope!r}")
+        overrides[filename] = norm
+    else:
+        overrides.pop(filename, None)
+    fd, tmp_path = tempfile.mkstemp(prefix="_scopes.", suffix=".json", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(overrides, f, ensure_ascii=False, indent=2, sort_keys=True)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def view_scope_for(filename: str, head_content: str = "") -> Optional[str]:
+    """Resolve the effective scope of a view file: explicit override beats inferred."""
+    overrides = load_view_scope_overrides()
+    explicit = overrides.get(filename)
+    if explicit:
+        return explicit
+    return infer_scope((Path(filename).stem if filename else "") + " " + (head_content or ""))
+
+
 def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, object]]:
     """Return HTML view files in `<vault>/Views/` whose scope matches.
 
-    Strategy: the Views/ folder is flat and conventionally uses date-slug
-    filenames (`20260221-1430-genpeach-contract-review.html`). We infer the
-    scope of each file from its filename + first 2KB of content (caches the
-    inferred scope by mtime to avoid re-scanning every request).
-
-    Returns most-recent-first list of {filename, title, mtime, scope}.
+    Resolution order: explicit `<vault>/Views/_scopes.json` override beats
+    `infer_scope(filename + first 2KB)`. Manual attachments via the dashboard
+    write into _scopes.json. Inference still acts as a default for unattached
+    files. Returns most-recent-first list of {filename, title, mtime, scope}.
     """
     scope = validate_scope(scope)
     if not scope:
@@ -399,6 +470,8 @@ def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, obj
     if not views_dir.exists() or not views_dir.is_dir():
         return []
 
+    overrides = load_view_scope_overrides()
+
     out: List[tuple[float, Dict[str, object]]] = []
     for path in views_dir.iterdir():
         if not path.is_file() or path.suffix.lower() != ".html":
@@ -407,14 +480,22 @@ def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, obj
             mtime = path.stat().st_mtime
         except OSError:
             continue
-        # Infer scope from filename (cheap) + small content peek (more signal).
-        try:
-            head = path.read_text(encoding="utf-8", errors="replace")[:2000]
-        except OSError:
-            head = ""
-        inferred = infer_scope(path.stem + " " + head)
-        if not inferred or not matches_scope(inferred, scope):
+        explicit = overrides.get(path.name)
+        head = ""
+        if not explicit:
+            try:
+                head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+            except OSError:
+                head = ""
+        resolved = explicit or infer_scope(path.stem + " " + head)
+        if not resolved or not matches_scope(resolved, scope):
             continue
+        # We still want a title; read head if we skipped it for explicit.
+        if not head and explicit:
+            try:
+                head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+            except OSError:
+                head = ""
         title = path.stem
         m = _VIEW_TITLE_RE.search(head)
         if m:
@@ -427,7 +508,8 @@ def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, obj
             "filename": path.name,
             "title": title,
             "mtime": mtime,
-            "scope": inferred,
+            "scope": resolved,
+            "explicit": bool(explicit),
         }))
 
     out.sort(key=lambda kv: -kv[0])
