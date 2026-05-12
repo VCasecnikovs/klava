@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-12T04:05:12.436222+00:00",
+  "last_run": "2026-05-12T04:35:03.421031+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -151,7 +151,12 @@
     "xai_harsh_irl_offer_20260511": "2026-05-11T20:21:56.795211",
     "taxa_intro_task_20260511": "2026-05-11T20:21:56.795212",
     "kl606_flight_may25_new": "2026-05-12T04:05:12.436222+00:00",
-    "dayflow_silent_speech_deep_sea_may12": "2026-05-12T04:05:12.436222+00:00"
+    "dayflow_silent_speech_deep_sea_may12": "2026-05-12T04:05:12.436222+00:00",
+    "dayflow_messaging_scrolling_20260512_0731": "2026-05-12T04:35:03.421182+00:00",
+    "obsidian_deep_sea_mining_0731": "2026-05-12T04:35:03.421182+00:00",
+    "obsidian_xov_thesis_0731": "2026-05-12T04:35:03.421182+00:00",
+    "gtask_result_may25_conflict_kl606": "2026-05-12T04:35:03.421182+00:00",
+    "gtask_proposal_may25_conflict_move": "2026-05-12T04:35:03.421182+00:00"
   },
   "seen_cal_events": {
     "1c4u12nhafdncps57hm0nubeh7": true,
