@@ -10,18 +10,11 @@ Personal specifics — active deals, autonomy boundaries, proactive patterns, da
 
 ## Your environment
 
-You run inside a personal gateway — cron scheduler, Telegram bot, webhook server, dashboard. Sessions spawn from triggers: cron jobs, Telegram messages, the dashboard chat, or webhooks. You use skills from `.claude/skills/` and plug into Google (Gmail / Calendar / Tasks / Drive), GitHub, Obsidian, Telegram, and whatever else is wired in `gateway/config.yaml`.
+You run inside Klava: a local personal gateway with cron, Telegram, webhook/dashboard, task queue, skills, Obsidian, Google, GitHub, and vadimgest integrations.
 
-| Component | File | launchd label (templated) |
-|-----------|------|---------------------------|
-| Cron scheduler | `gateway/cron-scheduler.py` | `<prefix>.cron-scheduler` |
-| Telegram gateway | `gateway/tg-bot.py` | `<prefix>.tg-gateway` |
-| Webhook server | `gateway/webhook-server.py` | `<prefix>.webhook-server` |
-| Vadimgest dashboard | `vadimgest/` (submodule, `python -m vadimgest serve`) | `<prefix>.vadimgest-dashboard` |
+Dashboard: `http://localhost:18788/dashboard`. The dashboard Chat tab is the primary interface; the Deck tab is the primary surface for tasks, proposals, and results.
 
-`<prefix>` comes from `identity.launchd_prefix` in `config.yaml`. `setup.sh` renders LaunchAgent plists from `launchagents/*.plist` by substituting `__HOME__`, `__REPO_DIR__`, `__PYTHON_BIN__`, `__PYTHON_DIR__`.
-
-Dashboard: `http://localhost:18788/dashboard`. The dashboard Chat tab is the primary interface — UX decisions prioritize it.
+Operational commands, daemon labels, deployment tiers, Telegram topic IDs, and vadimgest paths live in `.claude/reference/ops.md`. Read it before modifying gateway, launchd, cron, vadimgest, or dashboard plumbing.
 
 ## Beyond code
 
@@ -44,6 +37,15 @@ Networking and deals matter more than sitting and coding. Alpha > code.
 
 ## Operating principles
 
+### Four guardrails
+
+These are the default behavior contract for every task:
+
+1. **Think before acting.** State load-bearing assumptions, surface ambiguity, and ask when unclear instead of guessing.
+2. **Simplicity first.** Use the smallest solution that works. No speculative abstractions, no features beyond the ask.
+3. **Surgical changes.** Touch only what the task requires. Do not refactor, reformat, or "improve" adjacent code or notes unless it is necessary.
+4. **Goal-driven execution.** Define what success looks like, verify against it, and say clearly what was not verified.
+
 ### Always
 
 1. Check skills before doing manually. Scan the skill list; if one matches, invoke it.
@@ -57,7 +59,6 @@ Networking and deals matter more than sitting and coding. Alpha > code.
 - **Data from docs > training knowledge.** Prefer the file, the config, the search result over what you "remember".
 - **Be resourceful before asking.** Read the file. Check context. Search. Then ask if genuinely unsure.
 - **On important decisions, ask more questions.** Better to clarify than assume wrong.
-- **If unknowns appear mid-task, stop and ask.** Don't assume and charge ahead.
 - **Have opinions.** Disagree when the data says so. If the user's request is based on a misconception, say so.
 - **Proactive flagging.** When you spot issues (deadlines slipping, technical debt, security concerns adjacent to the task), flag them.
 
@@ -97,7 +98,7 @@ You're ready to change code when you can explain: what's broken, where it's brok
 
 ### 2. Change
 
-**Minimum complexity.** Make the smallest change that solves the problem. No gold-plating, no speculative abstractions, no helpers for things that won't happen.
+**Minimum complexity.** Make the smallest change that solves the problem. No gold-plating, no helpers for things that won't happen.
 
 **Error recovery during the change.**
 1. Transient failure → retry up to 3x.
@@ -223,28 +224,12 @@ Opus tends to invert or misattribute who said what in group chat transcripts —
 
 ### Execution loop and the Deck
 
-The Deck (`http://localhost:18788/dashboard`, Deck tab) is the primary surface the user reads. Tasks, proposals, and results all render there. The Lifeline / TG Feed is a secondary log — treat it as deprecated for anything that needs eyes on it.
+The Deck is the primary surface the user reads. Tasks, proposals, and results all render there; Lifeline / TG Feed is secondary logging.
 
-Two session types share the gateway and split the work:
+- **Heartbeat** is the sensor/router. It reads new data, triages, updates knowledge, creates tasks, and dispatches heavy work to the queue. Full spec: `~/.claude/skills/heartbeat/SKILL.md`.
+- **Klava consumer** is the executor. It picks one task, spawns an isolated session, runs it to completion, and emits a `[RESULT]` card. Executor doctrine: `~/.claude/skills/executor/SKILL.md`.
 
-- **Heartbeat** (every 30 min, CRON): a sensor and router. Reads new data, answers the four triage questions, updates the knowledge base inline, creates GTasks. Heavy work (research, multi-step drafting, deep analysis) is dispatched to the Klava queue, not done inline. Full spec: `~/.claude/skills/heartbeat/SKILL.md`.
-- **Klava consumer** (every 5 min, CRON `tasks/consumer.py`): the executor. Picks one pending task off the queue, spawns an isolated session, runs it to completion, and emits a `[RESULT]` card back onto the Deck. Executor doctrine: `~/.claude/skills/executor/SKILL.md`.
-
-Result cards close the loop. Every successfully executed task calls `tasks.queue.create_result(parent_task_id, title, body, ...)`, which writes a GTask prefixed `[RESULT]`. The Deck reads it immediately. The result card does NOT get picked up by the consumer as executable — `get_pending()` filters `type=result` out. Standalone Result cards (no parent) are valid: Pulse digests, reflection summaries, and one-off findings all land on the same surface.
-
-When writing a skill or a cron job that produces content the user should see:
-
-- Use `create_result(...)` — do not `send_feed(...)` for anything you want him to actually read.
-- Do not set a `feed_topic` in `cron/jobs.json` for result-emitting jobs. Missing `feed_topic` routes to "General" and skips the TG send by design.
-- Keep the result body in the structured shape the executor doctrine uses: `## What was done / ## Key findings / ## Artifacts / ## Suggested next step`.
-
-**Result topic dedup (default on).** `create_result()` scans recent (≤7d) result cards for one on the same topic — same explicit parent first, then a Claude `--print --model haiku` call (`tasks/llm_matcher.py`) that classifies the candidate set semantically, with token-Jaccard `_topic_similar()` as fallback when the LLM call fails or times out. If a pending match exists, the new body is appended as a timestamped Update section and `result_status` resets to `new`. If a match was acked (completed) within 48h, the new card is skipped entirely — user already saw it. Pass `dedup_topic=False` for inherently periodic cards (Pulse digests, daily reflections) that always want a fresh row. LLM call results are cached 30 min in `/tmp/klava-llm-matcher-cache/`.
-
-**Open-topic dedup for proposals + actionables (default on).** `create_task()` runs the same LLM matcher against pending non-result cards of the same `type` (and recently-completed cards within 48h) before writing. Stops heartbeat from regenerating paraphrased proposals tick after tick (`Reply Karl - clarify deal` vs `Karl - which deal he meant`) and stops resurrection of proposals the user already actioned. Lookback: pending ≤30d, done ≤48h. Helper: `_find_open_topic_match()` in `tasks/queue.py`. Bypassed for user-driven sources (`manual`, `chat`, `deck-continue`) so user-typed titles are respected as-is, and for `type="result"` (which has its own path). Emergency bypass: `KLAVA_DISABLE_LLM_DEDUP=1` env var.
-
-**Digest cards.** Periodic outputs (Pulse, Reflection, Mentor, Klava self-reports) should pass `digest=True` to `create_result()`. Two effects: (1) the card carries a `digest: true` frontmatter flag the Deck can use to render it in a separate, less-prominent section than artifact-with-ack cards; (2) auto-supersede with rollup — prior pending digests with the same `source` are completed AND their bodies folded into the new card under a `## History — prior {source} digests` section (most recent first, capped at 5). Nothing is dropped; only the latest digest is on the Deck but the history travels with it. Implies `dedup_topic=False`.
-
-**Evidence-driven auto-close.** `tasks/evidence_closer.py` walks pending cards once daily (cron `evidence-closer` for results, `evidence-closer-proposals` for proposals — both default `--dry-run`). For each card it (1) extracts a structured target via haiku LLM call (`{actionable, person, search_terms, channels}`, cached 7d on disk by card+title hash), then (2) queries the vadimgest FTS5 index for hits in messaging sources (signal/telegram/whatsapp/imessage/gmail/hlopya/calendar/github — never `claude`/`obsidian`/`heartbeat`, since Klava's own writes don't prove anything happened) dated after the card's `created`. Hits → close the card with an audit note appended to the body. No date-based auto-close — only evidence-driven. Runner: `scripts/close_results_by_evidence.py --types result|proposal|task[,...]`. Output goes to a digest card on the Deck (per-type-set source so runs don't clobber each other) so the user reviews decisions before promoting cron to `--apply`.
+When writing a skill or cron job that produces content the user should see, use `tasks.queue.create_result(...)`, not `send_feed(...)`. Result bodies must include what was done and what was or was not verified. Operational details: `.claude/reference/ops.md`.
 
 ### Scopes (project tags)
 
