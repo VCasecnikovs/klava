@@ -5,10 +5,10 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 179
-- Items fixed (30d): 97
+- Items added (30d): 182
+- Items fixed (30d): 100
 - Avg days open: 0
-- Last run: 2026-05-12
+- Last run: 2026-05-13
 
 ---
 
@@ -62,13 +62,45 @@
 - **description:** Self-evolve cron hit 3630s timeout (limit=3600s) at 11:23 UTC on May 11. Run was interrupted mid-cycle. Complex backlog with many open items pushes past 60 min. 5th timeout bump in history (1800→2700→3600→4500).
 - **resolved:** 2026-05-11 Bumped self-evolve timeout_seconds 3600→4500 in jobs.json (via ~/.klava/jobs.json symlink).
 
+### [2026-05-13] auto-memory MEMORY.md over 200-line limit
+- **source:** self-evolve scan
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** auto-memory file at 201 lines. System was truncating last line every session.
+- **resolved:** 2026-05-13 Merged last 2 lines of Vox Lab section into 1. File now 200 lines.
+
+### [2026-05-13] evidence-closer jetsam kill at ~5500s despite 7200s timeout
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** evidence-closer with 200 cards takes ~5500s. Even with 7200s timeout, macOS jetsam kills the process at ~5500s during peak-load catch-up runs (May 12 13:50: failed at 5540s Exit code -15).
+- **resolved:** 2026-05-13 Reduced --limit 200→150 in jobs.json. Cuts runtime to ~4125s, safely under jetsam pressure window.
+
+### [2026-05-13] heartbeat max_turns=80 causing 1-2h runs and SIGKILL/SIGTERM kills
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** 8 heartbeat failures in 24h (May 12-13): 6715s SIGKILL, 5043s SIGTERM, 4249s SIGTERM. max_turns=80 allows marathon sessions on heavy vadimgest days. Long runs = high memory = jetsam kills.
+- **resolved:** 2026-05-13 Reduced max_turns 80→40 in jobs.json. Caps per-run resource footprint.
+
+### [2026-05-13] heartbeat intake window unbounded on backlog-heavy days
+- **source:** self-evolve CRON analysis
+- **priority:** medium
+- **status:** proposed
+- **seen:** 1
+- **description:** vadimgest --consumer intake accumulates large backlogs on missed/API-down windows. Single heartbeat tries to process all of it → marathon runs → OS kills. Need bounded intake per run.
+- **fix-hint:** Add --max-messages or --since 2h cap to vadimgest read in heartbeat prompt_template. Stale items picked up next 30min cycle.
+
 ### [2026-05-10] pulse repeated SIGTERMs - 4 kills at 15-17 UTC today
 - **source:** self-evolve CRON analysis
 - **priority:** medium
 - **status:** open
-- **seen:** 2
-- **description:** Pulse failed 5 times in 24h (May 10). One SIGKILL (-9) at 1434s (memory pressure?). Four SIGTERMs at 317s, 22s, 150s, 17s - all clustered at 15-17 UTC (18-20 EEST). Pattern: multiple short kills suggest claude subprocess gets killed before producing output. Not timeout-related (pulse timeout=2700s, all failures well below). Root cause: confirmed jetsam/memory pressure. May 11 added: heartbeat also got exit -9 at 11:23 UTC and 14:58 UTC. Mentor got SIGTERM at 13:49 and 14:17 UTC. All happen during peak-load windows when multiple heavy jobs overlap. The 11:32 UTC "Timeout after 5s" errors for pulse+heartbeat = scheduler-self-restart collateral (expected). MEDIUM-risk proposal created in Google Tasks.
-- **fix-hint:** Jetsam killing isolated claude sessions during peak memory use. Options: (1) stagger pulse/mentor schedules to avoid heartbeat overlap, (2) add `--max-turns` cap to mentor to limit memory footprint, (3) check if there's a way to lower process priority or set memory limits. Proposal in GT for Vadim approval.
+- **seen:** 3
+- **description:** Pulse failed 5 times in 24h (May 10). One SIGKILL (-9) at 1434s (memory pressure?). Four SIGTERMs at 317s, 22s, 150s, 17s - all clustered at 15-17 UTC (18-20 EEST). Root cause: jetsam/memory pressure. May 13 update: heartbeat had 8 failures - 6715s SIGKILL, 5043s/4249s SIGTERM. Partial fixes applied: heartbeat max_turns 80→40 (2026-05-13), evidence-closer limit 200→150 (2026-05-13). Deeper fix (bounded intake window) proposed in GT.
+- **fix-hint:** Remaining: (1) add --max-messages or --since cap to vadimgest read in heartbeat prompt (GT proposal created 2026-05-13), (2) stagger pulse/mentor schedules to avoid heartbeat overlap.
 
 ### [2026-05-09] SKILL.md cron stats script used tail-200 and missing failure counting
 - **source:** self-evolve scan
