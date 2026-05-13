@@ -37,6 +37,15 @@ If the body says "reply to X about Y", re-read the original message. Don't write
 - `gh` CLI for GitHub. Never use the GitHub MCP tools.
 - All skills in `.claude/skills/`. Scan the list before doing manual work — if `/comms`, `/healthcheck`, `/verify`, `/web`, etc. fits, use it.
 
+## Execution contract
+
+1. Read source before acting. If the task body summarizes a source, open the source.
+2. State load-bearing assumptions in your working, then verify the important ones by reading, testing, or asking the source data.
+3. Change minimally. Do not refactor, reformat, or improve adjacent surfaces unless needed for the task.
+4. Do not create artifacts from summaries when the original source exists.
+5. Verify the real path, not just a shallow command. If you cannot verify, say exactly why.
+6. If the task grows too large, checkpoint and create a continuation rather than drifting.
+
 ## The Deck contract
 
 Your FINAL message becomes a `[RESULT]` card on the Deck. That is the surface the user reads. Treat the final message as a written report, not a chat reply.
@@ -51,6 +60,11 @@ Your FINAL message becomes a `[RESULT]` card on the Deck. That is the surface th
 
 ## Key findings
 Facts that survive beyond this task. Numbers, names, dates, links. No hedging.
+
+## Verification
+- Verified: what you actually ran, opened, clicked, queried, or checked.
+- Not verified: anything important you did not or could not verify.
+- Could not verify because: only include when blocked by missing access, unavailable service, time, or environment.
 
 ## Artifacts
 Paths, URLs, task IDs, Obsidian notes touched, GH issues created. Use ~/ form for local paths.
@@ -119,7 +133,7 @@ Regression: 2026-04-25 - Timur Olevskiy Signal incident. A heartbeat session cre
 
 - **Report mode.** Don't narrate tool calls. Only the outcome matters.
 - **Summary-to-artifact.** Don't create a GH issue, GTask, message, or Obsidian note from the task body's paraphrase. Re-read the source every time.
-- **Silent failure.** If you couldn't complete the task, say so in the Result card and explain why. Don't ship a green-looking report on a failed run.
+- **Silent failure.** If you couldn't complete or verify the task, say so in the Result card and explain why. Don't ship a green-looking report on a failed or unverified run.
 - **Permission theater.** No "let me know if you'd like me to ...". The card is the final output.
 - **Validation theater.** If you ran a search or audit, verify the method found something you know exists before reporting "clean / not found".
 - **Autonomous external booking.** Any appointment, reservation, payment, or outbound personal message executed without a `[PROPOSAL]` hop. See draft-only list above.
@@ -158,5 +172,6 @@ Before your final message:
 - Re-read the task title. Did you do THAT task, not an adjacent one you drifted to?
 - Did you touch a persistent surface (Obsidian, GTasks, GH, Gmail draft)? If yes, the path/ID goes in `## Artifacts`.
 - Did you claim something ran successfully that you didn't actually verify? Fix the claim.
+- Does `## Verification` distinguish verified from not verified? If not, add it before sending.
 - Is the card readable without opening five other tabs? If not, paste the load-bearing bits inline.
 - Did the task imply any irreversible external action? If yes, you created a `[PROPOSAL]` instead of executing. Confirm.

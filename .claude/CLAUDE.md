@@ -233,35 +233,9 @@ When writing a skill or cron job that produces content the user should see, use 
 
 ### Scopes (project tags)
 
-Every Klava task / result / session can carry a `scope` — an Obsidian folder path like `Astrum/`, `Vox Lab/Deals/Apple/`. The dashboard has a Scopes tab and a per-chat scope picker.
+Every Klava task / result / session can carry a `scope` — an Obsidian folder path like `Astrum/`, `Vox Lab/Deals/Apple/`.
 
-When a scoped task spawns into a session, the consumer auto-prepends a `# Scope: <path>/` block above the executor doctrine. The block carries hub frontmatter (`<scope>/_project.md`), 5 most-recently-modified notes in that subtree, open scoped tasks, recent scoped result cards, recent scoped sessions, and people/orgs cross-referenced from the notes. ~600 tokens. Read it first when present — it's the project context the user briefed you with implicitly.
-
-When you create new tasks via `tasks.queue.create_task(...)` from inside a session, pass `scope="<folder path>/"` if you know the project. If you omit it, `create_task` runs `infer_scope(title + body)` against the entity map in `cron/scopes.yaml` (`Astrum`, `PumpFun`, `Eldil`, etc.). Auto-infer is usually right but sometimes mistags ambiguous titles ("Anthropic SDK" → Vox-deal instead of Klava); explicit scope beats inferred.
-
-Scope conventions:
-- Always trailing `/` (e.g. `Astrum/`, not `Astrum`).
-- Hierarchical: `Vox Lab/Deals/Apple/` rolls up under `Vox Lab/`.
-- Catch-all folders (`People/`, `Organizations/`, `Topics/`, `Meetings/`, `Inbox/`, `archive/`, `_artifacts/`) are NOT scopes — they contain notes about projects but are not projects themselves.
-- Hub note convention: `<scope>/_project.md` with YAML frontmatter (`status`, `stage`, `owner`, `next_milestone`, `deadline`, `key_people`). Optional but powerful — surfaces status pills + briefs in the auto-context block.
-
-### Heartbeat architecture
-
-- **Cron-scheduler is the sole TG sender.** The heartbeat script outputs to stdout only; the scheduler formats and posts.
-- **`HEARTBEAT_OK` prefix** on heartbeat stdout tells the scheduler there's nothing to post — no TG message sent.
-- **Watchdog:** `cron-watchdog.py` runs under launchd every 300s, reads `/tmp/cron-scheduler.health`, kills the scheduler if stale for more than 10 minutes.
-- Job definitions are in `cron/jobs.json`. Topic IDs for TG posts are per-job.
-
-### Deployment tiers
-
-When modifying repo code, use the right mechanism:
-
-- **Tier 1 (hot-reload).** `cron/jobs.json`, `.claude/pipelines/*.yaml`, `.claude/skills/*`, `CLAUDE.md`. Edit and commit — next scheduled run picks it up.
-- **Tier 2 (per-invocation).** `gateway/hooks/*.py`. Edit and commit, loads fresh on next invocation.
-- **Tier 3 (restart needed).** `gateway/*.py`, `gateway/lib/*.py`. Use the deploy script if provided (skills overlay) or `launchctl kickstart -k gui/$(id -u)/<prefix>.<daemon>`.
-- **Tier 4 (approval needed).** `.claude/settings*.json`, `~/Library/LaunchAgents/*.plist`. Ask the user before changing.
-
-Daemon restart warning: the webhook server runs your dashboard Chat session. Restarting it mid-command kills your own process. Ask the user to restart when needed.
+When a scoped task spawns, the consumer prepends a compact `# Scope: <path>/` context block. Read it first: it is the project brief. When creating follow-up tasks from a scoped session, pass the same `scope` explicitly. Scope conventions and ops details live in `.claude/reference/ops.md`.
 
 ## External tools
 
@@ -269,7 +243,7 @@ Daemon restart warning: the webhook server runs your dashboard Chat session. Res
 
 - **Always use the `gh` CLI.** Never use GitHub MCP tools for repo operations — `gh` is more predictable, scriptable, and supported.
 - For Issues / PRs / Projects, go through `gh issue`, `gh pr`, `gh project`.
-- Project-specific IDs (field IDs, option IDs, team handles) live in `.claude/reference/` pointers; don't hardcode.
+- Project-specific IDs and operational details live in `.claude/reference/` pointers; don't hardcode.
 
 ### Google Tasks → GitHub Issues bridge
 
