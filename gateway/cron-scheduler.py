@@ -1053,7 +1053,7 @@ class JobManager:
         # Reap stale child processes before launching new ones (safety net)
         try:
             from lib.claude_executor import ClaudeExecutor
-            ClaudeExecutor.reap_stale_children(os.getpid(), max_age_seconds=5400, log=self.logger.info)
+            ClaudeExecutor.reap_stale_children(os.getpid(), max_age_seconds=7800, log=self.logger.info)
         except Exception:
             pass
         # Skip internet-dependent jobs when offline. Catch-up jobs are
