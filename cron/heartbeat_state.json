@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-13T17:28:02.074089+00:00",
+  "last_run": "2026-05-13T18:33:32.479533+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -303,6 +303,10 @@
       "title": "Mahir + Max - SF meet 3pm",
       "start": "2026-05-13T15:00:00-07:00",
       "attendees": []
+    },
+    "yaroslav_shipilov_2026_05_15": {
+      "title": "Yaroslav Shipilov",
+      "start": "2026-05-15T15:00"
     }
   }
 }
