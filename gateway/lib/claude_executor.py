@@ -72,6 +72,26 @@ _PROXY_SMALL_FAST_DEFAULT = os.environ.get(
 _PROXY_MAX_OUTPUT_TOKENS = os.environ.get(
     "CLAUDE_CODE_PROXY_MAX_OUTPUT_TOKENS", "128000"
 )
+_PROXY_ENV_KEYS = (
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+)
+
+
+def _project_has_api_key_helper() -> bool:
+    """Return True when project settings provide API-key auth for Claude CLI."""
+    try:
+        settings = json.loads(_cfg.settings_file().read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(settings.get("apiKeyHelper"))
+
+
+def _clear_proxy_env() -> Dict[str, str]:
+    """Blank inherited proxy env so native Anthropic models use apiKeyHelper."""
+    return {key: "" for key in _PROXY_ENV_KEYS}
 
 
 def _proxy_env_for_model(model: Optional[str]) -> Dict[str, str]:
@@ -177,9 +197,14 @@ class ClaudeExecutor:
                 env_vars["USER"] = getpass.getuser()
             except Exception:
                 pass
-        # Route to claude-code-proxy when model is a GPT/Kimi id so the same
-        # `claude` CLI talks to ChatGPT/Codex via the local translator.
-        env_vars.update(_proxy_env_for_model(opts.get("model")))
+        # Route GPT/Kimi ids through claude-code-proxy. For native Anthropic
+        # models, blank inherited proxy variables when apiKeyHelper is present
+        # so daemon-spawned sessions use the configured API key.
+        proxy_env = _proxy_env_for_model(opts.get("model"))
+        if proxy_env:
+            env_vars.update(proxy_env)
+        elif _project_has_api_key_helper():
+            env_vars.update(_clear_proxy_env())
         if env_vars:
             opts["env"] = env_vars
 
@@ -316,7 +341,12 @@ class ClaudeExecutor:
 
         error = None
         if result_msg.is_error:
-            error = result_msg.result or "Unknown error"
+            if result_msg.result:
+                error = result_msg.result
+            else:
+                # SDK returned is_error=True with no message - log turns for diagnosis
+                turns = result_msg.num_turns or 0
+                error = f"Unknown error (turns={turns})"
 
         return {
             "result": result_msg.result or "\n".join(text_parts),
