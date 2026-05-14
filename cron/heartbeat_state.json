@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-14T16:03:39.903176+00:00",
+  "last_run": "2026-05-14T16:33:31.132845+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -356,7 +356,10 @@
     "oobe_protocol_superteam_1716": "2026-05-14T13:50:22.491169+00:00",
     "gmail_x_ads_approved_20260514": "2026-05-14T14:08:35.307103+00:00",
     "gmail_airbnb_riga_promo": "2026-05-14T15:04:06.624182+00:00",
-    "gmail_subquadratic_newsletter": "2026-05-14T15:04:06.624185+00:00"
+    "gmail_subquadratic_newsletter": "2026-05-14T15:04:06.624185+00:00",
+    "selfdecode_newsletter_may14": "2026-05-14T16:33:31.133021+00:00",
+    "berkeley_pharma_speaker_may14": "2026-05-14T16:33:31.133023+00:00",
+    "heartbeat_2026-05-14_19-32": "2026-05-14T16:33:31.133024+00:00"
   },
   "seen_cal_events": {
     "1c4u12nhafdncps57hm0nubeh7": true,
