@@ -5,14 +5,30 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 182
+- Items added (30d): 189
 - Items fixed (30d): 100
 - Avg days open: 0
-- Last run: 2026-05-13
+- Last run: 2026-05-14
 
 ---
 
 ## Items
+
+### [2026-05-14] Unknown error logging improved - add turns count for diagnosis
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Heartbeat fails with "Unknown error" 6x per day at \-1.60 each. Root cause unclear - could be max_turns=40 hit. Fixed by adding num_turns to error message: "Unknown error (turns=N)". Also added non-retry rule for turns=40 case.
+- **resolved:** 2026-05-14 claude_executor.py adds turns count; cron-scheduler.py blocks retry on turns=40 [fbdfefa / 2dedf93]
+
+### [2026-05-14] Usage limit zombie sessions - 6h heartbeat churn after claude.ai cap
+- **source:** self-evolve CRON analysis  
+- **priority:** medium
+- **status:** proposed
+- **seen:** 2
+- **description:** After claude.ai usage limit fires, heartbeat keeps launching every 30min for 6h. Sessions hang 70-99min then get jetsam-killed. 10+ zombie sessions on May 13. Fix: detect "You've hit your limit" → pause job for 6h.
+- **fix-hint:** cron-scheduler.py _handle_job_result: set jobs_usage_pause[job_id] = now+6h. _should_skip_job: check pause. ~30 lines.
 
 ### [2026-05-12] evidence-closer timeout 3600→7200s - times out every day (5500s actual runtime)
 - **source:** self-evolve CRON analysis
@@ -503,8 +519,6 @@
 - **description:** task-consumer ran 8533s on May 2 (03:16-05:38 UTC) despite both TASK_TIMEOUT=3600 and cron-scheduler bash timeout=3600. Root cause: ClaudeExecutor.run() (blocking mode, used by consumer.py) has no wall-clock kill watchdog. run_detached() has _hard_kill_watchdog but run() does not. asyncio.timeout(N) can fail on macOS when receive_messages() blocks in C-level code. Second occurrence (Apr 27: 6725s was previous).
 - **resolved:** 2026-05-02 Added wall-clock kill watchdog to run(): soft deadline (timeout+30s) returns timeout error dict + kills SDK children; hard deadline (timeout+60s) in watchdog thread os._exit(1)s. Same pattern run_detached() already uses. [407bb11]
 
----
-
 ### [2026-05-03] Hallucinated dislike batch (6th occurrence, 26 items)
 - **source:** dislike
 - **priority:** low
@@ -512,6 +526,58 @@
 - **seen:** 26
 - **description:** 26 hallucinated dislike items (same 7 types x ~3-4 copies): "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". feedback.jsonl had 0 pending items. Self-evolve May 3 partial run confabulated these from backlog context. CRITICAL warning in SKILL.md present but not respected. 6th occurrence: Apr 20 (21), Apr 23 (7), Apr 25 (7), Apr 28 (7), May 1 (21), May 3 (26).
 
+### [2026-05-13] Bad response
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad response
+
+### [2026-05-13] bad
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** bad
+
+### [2026-05-13] Dislike on block #block-42
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-xyz
+- **description:** Bad output text
+
+### [2026-05-13] Dislike on block #block-1
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+### [2026-05-13] Bad output
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** Bad output
+
+### [2026-05-13] Output was wrong
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **session:** sess-99
+- **description:** Some context
+
+### [2026-05-13] Dislike on block #blk-5
+- **source:** dislike
+- **priority:** medium
+- **status:** open
+- **seen:** 1
+- **description:** 
+
+---
 
 ## Done
 
