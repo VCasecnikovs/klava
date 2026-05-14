@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-13T21:30:16.838795+00:00",
+  "last_run": "2026-05-14T01:00:08.160943+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -272,7 +272,18 @@
     "gtasks_results_may13_seen": "2026-05-13T21:21:05.285268+00:00",
     "calendar_ilya_may14_12pm": "2026-05-13T21:21:05.285268+00:00",
     "gmail_linkedin_newsletter_noise_may13": "2026-05-13T21:21:05.285268+00:00",
-    "heartbeat_2026-05-14_00-16": "2026-05-13T21:21:05.285268+00:00"
+    "heartbeat_2026-05-14_00-16": "2026-05-13T21:21:05.285268+00:00",
+    "signal_dima_ayush_mrp_csv_may13": "2026-05-14T01:00:08.160943+00:00",
+    "signal_vox_dev_pufit_jetlag_thursday_sync": "2026-05-14T01:00:08.160943+00:00",
+    "gmail_astrum_money_meeting_may14_invite": "2026-05-14T01:00:08.160943+00:00",
+    "gmail_unifi_identity_noise_may14": "2026-05-14T01:00:08.160943+00:00",
+    "obsidian_shawn_call_brief_executor_done": "2026-05-14T01:00:08.160943+00:00",
+    "obsidian_ilya_call_brief_executor_done": "2026-05-14T01:00:08.160943+00:00",
+    "gtask_result_shawn_executor_done": "2026-05-14T01:00:08.160943+00:00",
+    "gtask_prep_ilya_executor_done": "2026-05-14T01:00:08.160943+00:00",
+    "dayflow_astrum_tensorboard_training_may13_late": "2026-05-14T01:00:08.160943+00:00",
+    "cal_astrum_money_meeting_may14_8pm_eest": "2026-05-14T01:00:08.160943+00:00",
+    "heartbeat_2026-05-14_02-02": "2026-05-14T01:00:08.160943+00:00"
   },
   "seen_cal_events": {
     "1c4u12nhafdncps57hm0nubeh7": true,
@@ -330,6 +341,11 @@
       "attendees": [
         "pyatnitskiy@utexas.edu"
       ]
+    },
+    "astrum_money_meeting_may14_2030eest": {
+      "title": "astrum money meeting",
+      "start": "2026-05-14T20:30:00+03:00",
+      "attendees": 6
     }
   }
 }
