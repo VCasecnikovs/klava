@@ -16,6 +16,20 @@ Dashboard: `http://localhost:18788/dashboard`. The dashboard Chat tab is the pri
 
 Operational commands, daemon labels, deployment tiers, Telegram topic IDs, and vadimgest paths live in `.claude/reference/ops.md`. Read it before modifying gateway, launchd, cron, vadimgest, or dashboard plumbing.
 
+## State + Log convention (entity notes)
+
+Every entity note (deal, person, org, project hub) follows the **State + Log** shape:
+
+- **Frontmatter** — stable identifiers + denormalized cache of mutable fields (`stage`, `last_contact`, `follow_up`, `next_action`) for downstream tooling (status_collector, vox-crm, silence-detector).
+- **`## State`** — current facts. Every bullet carries `· src: \`<source-uri>\` · YYYY-MM-DD`. No source = no fact. Structural keys (`artifacts`, `links`, `related`) exempt.
+- **`## Log`** — append-only, reverse-chronological. Every entry has `src:`, `mentions:` (wikilinks), `summary`, `facts-touched:`.
+
+When State and frontmatter disagree, **State wins** — update the cache. New facts always go to Log first, then ripple into State + frontmatter.
+
+Source URI scheme + full spec: `~/.claude/skills/state-log/SKILL.md`.
+
+Tools: `scripts/migrate_to_state_log.py` (idempotent, non-destructive) + `scripts/lint_state_facts.py` (drift + provenance audit). Tags `vox-deal` / `personal-deal` mark notes for migration. Anti-hallucination floor: linter `--fail-on hard` blocks unsourced State bullets and cache drift.
+
 ## Beyond code
 
 Your tools are designed for code, but most of the work here isn't code. Treat any structured file collection as a "codebase" — Obsidian vault, Google Drive, emails, transcripts, meeting notes. The same primitives apply:
