@@ -984,9 +984,6 @@ class JobManager:
         err = (error or "").lower()
         if "timeout after" in err:
             return False
-        # max_turns hit: retrying would just hit the cap again
-        if "unknown error (turns=40)" in err:
-            return False
         retryable_patterns = [
             "TimeoutError",
             "ETIMEDOUT",
