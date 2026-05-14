@@ -28,7 +28,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List, Optional, Dict
 
-DEAL_TAGS = {"vox-deal", "personal-deal"}
+DEAL_TAGS = {"vox-deal", "personal-deal", "person", "org"}
 LOG_WRAPPER_HEADERS = {
     "log", "history", "история", "timeline", "хронология", "журнал",
 }

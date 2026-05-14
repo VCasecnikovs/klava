@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Tags that mark a note as needing State+Log shape.
-DEAL_TAGS = {"vox-deal", "personal-deal"}
+DEAL_TAGS = {"vox-deal", "personal-deal", "person", "org"}
 
 # Section headers (case-insensitive) treated as "log wrappers" — their
 # contents are flattened into the canonical ## Log.
@@ -217,22 +217,105 @@ def looks_like_state_section(section: Section) -> bool:
 
 
 STATE_BULLET_KEY_RE = re.compile(r"^-\s+\*\*([A-Za-z_][A-Za-z0-9_\-]*)\s*:\s*\*\*")
+STATE_BULLET_FULL_RE = re.compile(
+    r"^-\s+\*\*([A-Za-z_][A-Za-z0-9_\-]*)\s*:\s*\*\*\s*(.*?)\s*$"
+)
+
+
+def extract_state_leading_values(state_lines: List[str]) -> dict:
+    """Pull {key: leading_value} from rendered State bullets.
+
+    Leading value = text before " — " / " - " / " · src:" / linebreak.
+    Used to keep the frontmatter cache in sync with State (canonical truth).
+    Bullets whose source is `frontmatter` are skipped — those carry no new
+    information and would overwrite a real value with a stale one in a
+    round-trip migration.
+    """
+    out: dict = {}
+    for line in state_lines:
+        m = STATE_BULLET_FULL_RE.match(line)
+        if not m:
+            continue
+        key, payload = m.group(1), m.group(2)
+        if key not in STATE_MIRROR_KEYS:
+            continue
+        # Skip weak-source bullets — they were seeded FROM frontmatter, so
+        # writing them back would be a no-op at best and lossy at worst
+        # (annotation gets dropped).
+        src_m = re.search(r"src:\s*`?([^`\s]+)`?", payload)
+        if src_m and src_m.group(1).strip().lower() == "frontmatter":
+            continue
+        # Strip annotation tail and src clause to get the bare value.
+        val = payload
+        for sep in (" — ", " – ", " - ", "  src:", " · src:"):
+            if sep in val:
+                val = val.split(sep, 1)[0]
+                break
+        val = val.strip().strip('"').strip("'").strip("`").strip()
+        if val:
+            out[key] = val
+    return out
+
+
+def sync_frontmatter_cache(fm: str, leading: dict) -> str:
+    """Overwrite frontmatter values for cached keys with State leading values.
+
+    Only touches keys present in `leading`. Keys absent from State stay as
+    frontmatter has them. Preserves YAML indentation + comments verbatim.
+    """
+    if not leading:
+        return fm
+    out_lines = []
+    for line in fm.splitlines(keepends=True):
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_\-]*)\s*:\s*(.*)$", line.rstrip("\n"))
+        if m and m.group(1) in leading:
+            key = m.group(1)
+            new_val = leading[key]
+            # Quote if value contains characters that would break YAML.
+            if any(c in new_val for c in ":#") or new_val.startswith(("[", "{", "!", "&", "*", "?", "|", ">", "%", "@", "`")):
+                new_val = '"' + new_val.replace('"', '\\"') + '"'
+            out_lines.append(f"{key}: {new_val}\n")
+        else:
+            out_lines.append(line)
+    return "".join(out_lines)
 
 
 def build_state_section(fm_keys: dict, existing_state_lines: List[str]) -> str:
-    """Merge: keep existing State bullets verbatim; add weak frontmatter
-    mirrors only for cached keys that aren't already covered.
+    """Merge: preserve existing State bullets with strong sources; refresh
+    bullets with weak `src: frontmatter` from current frontmatter; add weak
+    mirrors only for cached keys not already covered.
 
-    This is the load-bearing rule that makes the script non-destructive on
-    re-runs: hand-curated bullets with real `src: signal://...` survive a
-    re-migration; only missing keys get the weak `src: frontmatter` stub.
+    Three-way merge resolution:
+      - Bullet with strong src (signal://, hlopya://, etc.) → preserve verbatim.
+        Its value will sync FROM State TO frontmatter via `sync_frontmatter_cache`.
+      - Bullet with weak `src: frontmatter` → refresh value from current
+        frontmatter. The seed bullet should always reflect the cache.
+      - Cached key with no State bullet yet → add weak mirror.
+
+    This makes the script non-destructive on re-runs: hand-curated bullets with
+    real `src: signal://...` survive a re-migration; the cache mirrors stay
+    fresh; nothing goes stale silently.
     """
     existing_keys: set = set()
     preserved: List[str] = []
     for line in existing_state_lines:
         m = STATE_BULLET_KEY_RE.match(line)
         if m:
-            existing_keys.add(m.group(1))
+            key = m.group(1)
+            existing_keys.add(key)
+            # Detect weak source. If weak AND key is in MIRROR_KEYS, refresh
+            # from frontmatter to keep the seed bullet aligned with cache.
+            full = STATE_BULLET_FULL_RE.match(line)
+            payload = full.group(2) if full else ""
+            src_m = re.search(r"src:\s*`?([^`\s]+)`?", payload)
+            is_weak = src_m is not None and src_m.group(1).strip().lower() == "frontmatter"
+            if is_weak and key in STATE_MIRROR_KEYS:
+                fm_val = fm_keys.get(key)
+                if fm_val and fm_val not in {"null", "~"}:
+                    preserved.append(
+                        f"- **{key}:** {fm_val} · src: `frontmatter` · _needs upgrade_"
+                    )
+                    continue
             preserved.append(line)
         elif preserved and line.startswith("  "):
             # continuation line under a bullet (e.g. "  - sub: ...")
@@ -337,7 +420,13 @@ def migrate_text(text: str) -> Tuple[str, dict]:
             chunk = sec.header + "\n" + "\n".join(sec.body_lines)
             out_parts.append(chunk.rstrip())
 
-    state_block = "## State\n\n" + build_state_section(fm_keys, existing_state_lines)
+    state_section_body = build_state_section(fm_keys, existing_state_lines)
+    state_block = "## State\n\n" + state_section_body
+
+    # Sync frontmatter cache from State leading values (State wins on drift).
+    leading = extract_state_leading_values(state_section_body.splitlines())
+    fm = sync_frontmatter_cache(fm, leading)
+
     log_block = "## Log\n\n" + render_log(deduped)
 
     out_parts.append(state_block.rstrip())

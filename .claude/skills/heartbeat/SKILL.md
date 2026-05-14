@@ -12,7 +12,9 @@ You are the assistant. Every 30 minutes you check for new data and ACT on it. Do
 
 ## Role boundary
 
-Heartbeat is a **sensor and router**, not an executor. Do the light, immediate work inline: update `last_contact`, append a History entry, create a task, record a signal, write to Inbox/. Anything heavier - research, multi-step analysis, drafting a careful reply, deep investigation, anything >30 seconds of real work - **dispatch to the Klava queue** (see DISPATCH recipe).
+Heartbeat is a **sensor and router**, not an executor. Do the light, immediate work inline: append a `## Log` entry with `src:` provenance, update `## State` bullets for changed facts, sync the frontmatter cache, create a task, write to Inbox/. Anything heavier - research, multi-step analysis, drafting a careful reply, deep investigation, anything >30 seconds of real work - **dispatch to the Klava queue** (see DISPATCH recipe).
+
+**Every fact you write must carry `src:`.** No source = no fact. The State+Log convention is the law of the knowledge base — see `~/.claude/skills/state-log/SKILL.md` for the full spec and the writeback recipe below for the exact format heartbeat uses.
 
 The Klava consumer (`tasks/consumer.py`, every 5 min) picks up dispatched tasks, spawns an isolated executor session, runs the task, and emits a `[RESULT]` card to the Deck. That card is what the user reads, not your Feed output. So:
 
@@ -140,7 +142,7 @@ Examples (non-exhaustive - any useful help counts):
 
 **Pick the lane (not by size — by certainty):**
 
-1. **Do it inline** when the write is safe, reversible, and lives in the knowledge base — `last_contact`, a History entry, an Observations line, a task created, an Inbox/ signal. No approval needed.
+1. **Do it inline** when the write is safe, reversible, and lives in the knowledge base — a `## Log` entry, a `## State` bullet update with `src:`, a task created, an Inbox/ signal. No approval needed.
 2. **Propose it** (via `create_proposal` — see DISPATCH recipe) when the useful action is ambitious but you're not sure the user wants it done exactly that way. A clean proposal with a concrete `## Plan` is one click for him and unlocks ambitious work. This is where your freedom expands: **propose well and you can propose much**. Bad proposals (vague plans, summary-of-a-summary, no concrete diff) waste his attention and shrink the lane.
 3. **Dispatch it** (via `create_task` — see DISPATCH recipe) when you're confident the task itself is well-defined and the executor just needs to go do it — research, data gathering, deep investigation where the work is the plan.
 
@@ -190,7 +192,7 @@ Not facts, but TRENDS. What's changing? What's repeating? What's nobody noticing
 
 If no existing lens fits - still write it. Use a new tag.
 
--> Entity `## Observations` / `## Signals` or Inbox/ (see OBSERVE recipe)
+-> Entity `## Log` entry (with `src:`, `mentions:`, signal tag in summary) or Inbox/ — see OBSERVE recipe + STATE+LOG WRITEBACK
 
 One group can trigger all four answers simultaneously. Multiple actions per group is normal.
 
@@ -225,12 +227,11 @@ Use the appropriate recipe based on what Phase 2 identified. One conversation gr
 **DEAL:**
 1. Read deal note from your deals folder
 2. Match message to deal by company name, person name, product, or topic
-3. Update deal note - ALL of these:
-   - **Frontmatter**: `last_contact` (today), `follow_up` (next logical date), `next_action` (what needs to happen now)
-   - **Current status**: rewrite to reflect current reality
-   - **Next steps**: update list based on new information
-   - **History**: append new entry `### YYYY-MM-DD - {event title}` with source, who said what, what changed
-   - **stage**: change ONLY if deal actually moved stages
+3. Update deal note — write through the **STATE+LOG WRITEBACK** recipe below:
+   - **Log:** prepend a new `### YYYY-MM-DD — {event title}` entry to `## Log` with `src:`, `mentions:`, `summary`, `facts-touched:`. Always newest-first.
+   - **State:** for each fact in `facts-touched`, update the matching `## State` bullet — replace the value AND the `src:` to point at the new event's source URI. Use real URIs (`signal://...`, `hlopya://...`, `gmail://...`), never `frontmatter`.
+   - **Frontmatter cache:** if `stage` / `last_contact` / `follow_up` / `next_action` changed in State, mirror the leading value into frontmatter so the dashboard + vox-crm + silence-detector pick it up.
+   - **stage:** change ONLY if deal actually moved stages (a stage change is a State update with `src:` pointing at the message that justified it).
 4. Create/update task `[DEAL] {company} - {next action}` with due=follow_up date
 5. If pricing/contract/requirements changed - note in Feed output
 
@@ -338,13 +339,14 @@ Heartbeat continues processing other groups while queued work runs on the next c
    - Every action item -> task [MTG]
    - New people/companies -> research or dispatch
 
-5. **People notes**: update last_contact + History entry with call summary for all participants
+5. **People notes**: append a `## Log` entry with `src: hlopya://<meeting-id>`, `mentions:` (wikilinks for all participants), summary of what they said + decisions touching them. Update `## State` `last_contact` bullet (new value + new `src:`), sync frontmatter cache.
 
-6. **Deal updates - WRITE DIRECTLY** (not propose):
+6. **Deal updates — WRITE DIRECTLY** (not propose). Use the **STATE+LOG WRITEBACK** recipe:
    - Read matching deal notes
-   - Update frontmatter: `last_contact`, `follow_up`, `next_action`
-   - Append update section with key intel from transcript
-   - This is first-party intelligence (own call) - update it, don't wait for approval
+   - Prepend `## Log` entry: `src: hlopya://<meeting-id>`, `mentions:`, summary of deal-relevant content, `facts-touched:`
+   - Update affected `## State` bullets (`stage`, `next_action`, `pricing`, etc.) — new value, new `src:`
+   - Mirror leading values into frontmatter cache for `stage` / `last_contact` / `follow_up` / `next_action`
+   - This is first-party intelligence (own call) — update directly, don't wait for approval
 
 7. **Tasks**: one per action item. `[MTG] {company/person}: {action}` with due date
 
@@ -359,7 +361,7 @@ Heartbeat continues processing other groups while queued work runs on the next c
 Triggered by Calendar Delta Check (Phase 1.4) when new event has external attendees.
 
 1. **Check People/** - search for attendee name or email
-   - If found: update `last_contact`, add History entry, skip dispatch
+   - If found: append `## Log` entry + refresh `## State` `last_contact` bullet + sync frontmatter cache, skip dispatch
    - If NOT found -> continue to step 2
 
 2. **DISPATCH research + meeting prep to background:**
@@ -380,47 +382,121 @@ Triggered by Calendar Delta Check (Phase 1.4) when new event has external attend
 
 For Q3 (new facts) and Q4 (patterns/signals).
 
-1. **Route to entity note** if about a specific person/deal/company:
-   - People/ -> append to `## Observations` section
-   - Deals/ -> append to `## Signals` section
-   - Organizations/ -> append to `## Notes` section
+1. **Route to entity note** if about a specific person/deal/company. Use the **STATE+LOG WRITEBACK** recipe — append a `## Log` entry with `src:`, `mentions:`, `summary`. Tag the signal type and trajectory inside the summary, e.g.:
 
-   Format: `- YYYY-MM-DD [TAG] Evidence with specifics. trajectory`
+   ```markdown
+   ### 2026-05-14 — Pufit burnout signal escalating
+   - **src:** `signal://pufit/2026-05-14`
+   - **mentions:** [[Pufit]], [[XOV]]
+   - **summary:** [BURNOUT escalating] "не могу думать сейчас, просто на отдых нужен"; third such message in 10 days. ADHD signal pattern consistent with prior cycles.
+   - **facts-touched:** wellbeing
+   ```
 
-   Fact tags: FACT, ASSET, PREFERENCE, SKILL, RELATION, BACKGROUND
-   People tags: BURNOUT, INITIATIVE, WITHDRAWAL, FRUSTRATION, GROWTH, RELIABILITY, PATTERN, CONCERN, POSITIVE
-   Deal tags: VELOCITY_UP, VELOCITY_DOWN, QUALITY_CONCERN, COMPETITOR, SCOPE_CREEP, ENTHUSIASM, RISK, OPPORTUNITY
-   Process tags: FRICTION, AUTOMATION, WORKAROUND, BROKEN, REPEATED
-   Idea tags: OPPORTUNITY, PROPOSAL, FEATURE_REQUEST, PIVOT, UNEXPLORED
-   Agreement tags: COMMITMENT, DEADLINE, ROLE_ASSIGNMENT, DECISION, PROMISE
+   If the observation establishes or revises a fact (capacity, commitment, capability, preference), also update the corresponding `## State` bullet with the new `src:`. Pure signals (no state change) only need a Log entry.
 
-   Trajectory: `escalating` | `new` | `stable` | `declining` | `resolved`
+   Tag vocabulary (use inside summary, in square brackets):
+   - **Fact:** FACT, ASSET, PREFERENCE, SKILL, RELATION, BACKGROUND
+   - **People:** BURNOUT, INITIATIVE, WITHDRAWAL, FRUSTRATION, GROWTH, RELIABILITY, PATTERN, CONCERN, POSITIVE
+   - **Deal:** VELOCITY_UP, VELOCITY_DOWN, QUALITY_CONCERN, COMPETITOR, SCOPE_CREEP, ENTHUSIASM, RISK, OPPORTUNITY
+   - **Process:** FRICTION, AUTOMATION, WORKAROUND, BROKEN, REPEATED
+   - **Idea:** OPPORTUNITY, PROPOSAL, FEATURE_REQUEST, PIVOT, UNEXPLORED
+   - **Agreement:** COMMITMENT, DEADLINE, ROLE_ASSIGNMENT, DECISION, PROMISE
 
-2. **Route to Inbox/** if cross-entity, generic, or doesn't fit above:
+   Trajectory inside the tag: `escalating | new | stable | declining | resolved`.
+
+2. **Route to Inbox/** if cross-entity, generic, or doesn't fit a single entity:
    - File: `<VAULT_PATH>/Inbox/YYYY-MM-DD - {short title}.md`
-   - Frontmatter: date, source, lens, tags, type (signal|knowledge|idea|process|agreement), related ([[wikilinks]])
-   - Sections: `## Summary` (one line), `## Details` (evidence, context)
+   - Frontmatter: `date`, `source`, `lens`, `tags`, `type` (signal|knowledge|idea|process|agreement), `related` ([[wikilinks]])
+   - Sections: `## Summary` (one line), `## Details` (evidence, context with `src:` URIs)
 
-3. **Be greedy.** The cost of a missed signal is permanent. The cost of writing too much is near-zero - Reflection grooms nightly. When in doubt, write to Inbox/.
+3. **Be greedy.** The cost of a missed signal is permanent. The cost of writing too much is near-zero — Reflection grooms nightly. When in doubt, write to Inbox/.
 
 **After executing ALL actions** -> add to `reported` dict. Don't act on same item again unless status changes.
 
 ### Knowledge Base Updates - MANDATORY
 
-After executing per-bucket actions, verify the knowledge base is up to date.
+After executing per-bucket actions, verify the knowledge base is up to date. **All writes follow the STATE+LOG WRITEBACK recipe** (next section).
 
 **Core (always update):**
-- **People/** - update `last_contact` for ANY person who communicated (including user's outgoing messages to them). Append History entry for non-NOISE interactions. New facts -> appropriate section
-- **Organizations/** - update if company status changed, new contact found, or deal info appeared
-- **Life/** - personal patterns, family logistics, relationships, health, interests
+- **People/** — for ANY person who communicated (including outgoing messages to them): append a `## Log` entry, update `## State` `last_contact` bullet with new `src:`, sync frontmatter cache.
+- **Organizations/** — if company status changed, new contact found, or deal info appeared: append `## Log` entry + update relevant `## State` bullets.
+- **Life/** — personal patterns, family logistics, relationships, health, interests: same shape.
 
-**Deals and project-specific folders:** Update IMMEDIATELY when deal info appears (stage, pricing, status, follow-up).
+**Deals and project-specific folders:** Update IMMEDIATELY when deal info appears — Log entry + State update + frontmatter sync.
 
-**Inbox/ (catch-all):** Cross-entity observations, new themes, ideas, process notes. Everything that doesn't fit typed folders. Reflection routes nightly.
+**Inbox/ (catch-all):** Cross-entity observations, new themes, ideas, process notes. Everything that doesn't fit typed folders. Reflection routes nightly. Inbox/ notes also carry `src:` in their Details section.
 
 Follow People and Organizations skill write protocols if they exist. Cross-link with `[[wikilinks]]`.
 
-**CRITICAL: If you processed >5 non-NOISE items and updated 0 knowledge base notes, something is wrong. Go back and at minimum update last_contact in People/ notes.**
+**CRITICAL: If you processed >5 non-NOISE items and updated 0 knowledge base notes, something is wrong. At minimum, every non-NOISE interaction must produce a `## Log` entry on the involved person's note and refresh their `last_contact` State bullet.**
+
+### STATE+LOG WRITEBACK recipe
+
+This is the canonical write protocol for ALL entity-note updates (deals,
+people, orgs, project hubs). Follow this exactly — the linter
+(`scripts/lint_state_facts.py`) will block commits if you deviate.
+
+**Step 1 — Append to `## Log`** (top of section, reverse-chronological):
+
+```markdown
+### YYYY-MM-DD — <short title>
+- **src:** `<source-uri>`
+- **mentions:** [[Entity One]], [[Entity Two]]
+- **summary:** what happened. Quote substantively (1-3 short quotes max). Tag signals in [BRACKETS escalating] form when relevant.
+- **facts-touched:** key1, key2  (or — for pure observation)
+```
+
+Source URI scheme — derive from the vadimgest row you read:
+
+| Channel | URI |
+|---|---|
+| Telegram | `tg://<chat_id>/<msg_id>` |
+| Signal | `signal://<group-or-person>/<ts-or-date>` |
+| WhatsApp | `whatsapp://<chat>/<msg_id>` |
+| iMessage | `imessage://<chat>/<rowid>` |
+| Hlopya call | `hlopya://<meeting-id-or-slug>` |
+| Gmail | `gmail://<msg_id>` |
+| Calendar | `gcal://<event_id>` |
+| GitHub | `gh://<owner>/<repo>/issue/<n>` |
+| Browser observation | `browser://<host>` |
+| Vadim verbal | `vadim-said://<YYYY-MM-DD>` |
+
+When in doubt, use the form `<source-name>://<identifier-or-date>`. The
+linter accepts anything matching `src:\s*\`?[^\s\`]+\`?`.
+
+**Step 2 — Update `## State` bullets** for each fact in `facts-touched:`:
+
+```markdown
+- **<key>:** <new value> · src: `<same-source-uri-as-log-entry>` · YYYY-MM-DD
+```
+
+Replace value AND src. Never leave a State bullet with `src: frontmatter`
+once a real source has touched it. If the key didn't exist as a State
+bullet yet, add it.
+
+Structural keys (`artifacts`, `links`, `related`, `channels`, `people`)
+don't need `src:` — they're indexes, not asserted facts.
+
+**Step 3 — Sync frontmatter cache** for the four mirror keys (`stage`,
+`last_contact`, `follow_up`, `next_action`). Take the leading value of
+the matching `## State` bullet (text before " — " / " · src:") and write
+it as-is into frontmatter. Downstream tooling reads frontmatter; State
+wins on drift; `migrate_to_state_log.py` auto-syncs on every run as a
+safety net.
+
+**Step 4 — Wikilink discipline.** Every `mentions:` field must use
+`[[Name]]` form. Convert bare names to wikilinks before writing. This is
+what keeps the backlink graph alive — Reflection relies on it nightly.
+
+**Common mistakes to avoid:**
+- Writing a fact to State without `src:` → linter blocks.
+- Updating frontmatter directly without touching State → drift; State
+  loses provenance until someone notices.
+- Appending to a `## History` / `## Observations` / `## Signals` section →
+  those sections no longer exist post-migration. Append to `## Log`.
+- Forgetting `mentions:` → backlink graph dies; cross-entity search rots.
+- Duplicate Log entry for the same (person, date, source) → check
+  newest 3-5 entries before appending.
 
 ### Dedup
 
@@ -431,7 +507,7 @@ Follow People and Organizations skill write protocols if they exist. Cross-link 
 4. Tag normalization: use ONLY canonical tags. Map FEATURE->ACTION, PRICING->DEAL, TASK->DELEGATE, etc.
 5. If match found: UPDATE existing task notes with new context, don't create new
 
-**Knowledge base History:** Check person+date+source doesn't already exist before append.
+**Knowledge base Log:** Before appending a `## Log` entry, scan the newest 3-5 entries for one with the same (date, src, mentions intersection). If found, update it in place (extend the summary, add to facts-touched) instead of creating a duplicate.
 
 ### Morning Brief (first run of day only)
 
@@ -524,7 +600,7 @@ After human-readable output, ALWAYS append `---DELTAS---` with JSON array:
   {"type": "gtask_created", "title": "[REPLY] Person - topic", "due": "2026-03-02", "trigger": "Person: message text", "summary": "Person needs reply - task created", "category": "reply"},
   {"type": "gtask_completed", "title": "[DEAL] Company - action", "trigger": "user replied", "summary": "Company deal task closed", "category": "deal"},
   {"type": "deal_updated", "path": "Deals/Company.md", "deal_name": "Company Deal", "stage": "15-live", "change": "LIVE IN PROD", "next_action": "follow up", "trigger": "message content", "summary": "Deal went live", "category": "deal"},
-  {"type": "obsidian_updated", "path": "People/Name.md", "change": "last_contact + history", "facts": ["fact1", "fact2"], "trigger": "source", "summary": "Updated People/ note", "category": "knowledge"},
+  {"type": "obsidian_updated", "path": "People/Name.md", "change": "log + state(last_contact)", "facts": ["fact1", "fact2"], "trigger": "source", "summary": "Updated People/ note", "category": "knowledge"},
   {"type": "observation", "path": "People/Name.md", "lens": "PEOPLE", "tag": "BURNOUT", "trajectory": "escalating", "trigger": "evidence", "summary": "Burnout signal escalating", "category": "knowledge"},
   {"type": "inbox_created", "path": "Inbox/file.md", "lens": "TEAM", "summary": "Cross-entity signal captured", "category": "deal"},
   {"type": "dispatched", "label": "Research: Name", "summary": "Research dispatched to background", "expected": "People/ note", "category": "knowledge"},
