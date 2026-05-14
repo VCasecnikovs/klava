@@ -333,6 +333,116 @@ class TestIsRetryableError:
         assert job_manager._is_retryable_error("") is False
 
 
+# ── usage limit detection + pause ────────────────────────────────────
+# Regression: 2026-05-13 - heartbeat hit "You've hit your limit · resets
+# 6pm (America/Los_Angeles)" at 18:00 PDT, then 10+ subsequent launches
+# hung 70-99 min each (exit-143 via jetsam SIGKILL) because retries fired
+# on transient-looking errors. Pause now blocks claude-mode jobs until
+# the reset window passes.
+
+class TestUsageLimitDetection:
+    def test_detects_usage_limit_string(self, job_manager):
+        err = "You've hit your limit · resets 6pm (America/Los_Angeles)"
+        assert job_manager._is_usage_limit_error(err) is True
+
+    def test_ignores_unrelated_errors(self, job_manager):
+        assert job_manager._is_usage_limit_error("Command failed with exit code 143") is False
+        assert job_manager._is_usage_limit_error("TimeoutError: ...") is False
+        assert job_manager._is_usage_limit_error("") is False
+        assert job_manager._is_usage_limit_error(None) is False
+
+    def test_parses_simple_hour(self, job_manager):
+        err = "You've hit your limit · resets 6pm (America/Los_Angeles)"
+        reset = job_manager._parse_usage_reset(err)
+        assert reset is not None
+        assert reset.tzinfo is not None
+        # 6pm Los Angeles is 18:00 local; converted to UTC: 18+7 or 18+8 = 01:00 or 02:00 UTC
+        from zoneinfo import ZoneInfo
+        reset_la = reset.astimezone(ZoneInfo("America/Los_Angeles"))
+        assert reset_la.hour == 18
+        assert reset_la.minute == 0
+
+    def test_parses_minute_form(self, job_manager):
+        err = "You've hit your limit · resets 2:30pm (America/New_York)"
+        reset = job_manager._parse_usage_reset(err)
+        assert reset is not None
+        from zoneinfo import ZoneInfo
+        reset_ny = reset.astimezone(ZoneInfo("America/New_York"))
+        assert reset_ny.hour == 14
+        assert reset_ny.minute == 30
+
+    def test_parses_midnight_am(self, job_manager):
+        # "12am" must roll to 00:00, not 12:00.
+        err = "You've hit your limit · resets 12am (UTC)"
+        reset = job_manager._parse_usage_reset(err)
+        assert reset is not None
+        assert reset.hour == 0
+
+    def test_parses_noon_pm(self, job_manager):
+        # "12pm" must stay 12:00, not 24:00.
+        err = "You've hit your limit · resets 12pm (UTC)"
+        reset = job_manager._parse_usage_reset(err)
+        assert reset is not None
+        assert reset.hour == 12
+
+    def test_parse_returns_none_on_mismatch(self, job_manager):
+        assert job_manager._parse_usage_reset("nothing here") is None
+        assert job_manager._parse_usage_reset("") is None
+
+
+class TestUsagePauseLifecycle:
+    def test_set_pause_writes_state(self, job_manager):
+        err = "You've hit your limit · resets 6pm (America/Los_Angeles)"
+        job_manager._set_usage_pause("heartbeat", err)
+        pause = job_manager.state.get("usage_pause")
+        assert pause is not None
+        assert pause["set_by_job"] == "heartbeat"
+        assert "resets 6pm" in pause["raw_error"]
+        assert "reset_at" in pause and "set_at" in pause
+
+    def test_set_pause_fallback_on_unparseable(self, job_manager):
+        # No "resets ..." segment - falls back to 6h pause.
+        err = "You've hit your limit"
+        job_manager._set_usage_pause("heartbeat", err)
+        pause = job_manager.state.get("usage_pause")
+        assert pause is not None
+        reset_at = datetime.fromisoformat(pause["reset_at"])
+        delta = (reset_at - datetime.now(timezone.utc)).total_seconds()
+        # ~6h, allow generous slack for test scheduling.
+        assert 5 * 3600 < delta < 7 * 3600
+
+    def test_active_when_future(self, job_manager):
+        future = datetime.now(timezone.utc) + timedelta(hours=2)
+        job_manager.state["usage_pause"] = {
+            "set_at": datetime.now(timezone.utc).isoformat(),
+            "reset_at": future.isoformat(),
+            "raw_error": "...",
+            "set_by_job": "heartbeat",
+        }
+        assert job_manager._usage_pause_active() is not None
+
+    def test_clears_when_expired(self, job_manager):
+        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        job_manager.state["usage_pause"] = {
+            "set_at": (past - timedelta(hours=6)).isoformat(),
+            "reset_at": past.isoformat(),
+            "raw_error": "...",
+            "set_by_job": "heartbeat",
+        }
+        assert job_manager._usage_pause_active() is None
+        # Stale flag must be cleared so it doesn't gate forever.
+        assert "usage_pause" not in job_manager.state
+
+    def test_none_when_no_pause(self, job_manager):
+        job_manager.state.pop("usage_pause", None)
+        assert job_manager._usage_pause_active() is None
+
+    def test_clears_when_state_malformed(self, job_manager):
+        job_manager.state["usage_pause"] = {"reset_at": "not-a-date"}
+        assert job_manager._usage_pause_active() is None
+        assert "usage_pause" not in job_manager.state
+
+
 # ── _load_state ──────────────────────────────────────────────────────
 
 class TestLoadState:

@@ -1006,6 +1006,95 @@ class JobManager:
         ]
         return any(p.lower() in err for p in retryable_patterns)
 
+    # Claude.ai error string when the subscription's usage window is exhausted.
+    # Example: "You've hit your limit · resets 6pm (America/Los_Angeles)".
+    _USAGE_LIMIT_RE = re.compile(
+        r"hit your limit.*?resets\s+(?P<time>\d{1,2}(?::\d{2})?)\s*(?P<ampm>[ap]m)\s*"
+        r"\((?P<tz>[^)]+)\)",
+        re.IGNORECASE,
+    )
+
+    def _is_usage_limit_error(self, error: str) -> bool:
+        """True if Claude returned a 'usage limit' error (subscription cap hit)."""
+        if not error:
+            return False
+        return "hit your limit" in error.lower()
+
+    def _parse_usage_reset(self, error: str):
+        """Parse 'resets 6pm (America/Los_Angeles)' into next-occurring UTC datetime.
+
+        Returns None if the error doesn't match the expected shape so the caller
+        can fall back to a fixed window. Always picks the next future occurrence
+        (today if still ahead, otherwise tomorrow).
+        """
+        if not error:
+            return None
+        m = self._USAGE_LIMIT_RE.search(error)
+        if not m:
+            return None
+        time_str = m.group("time")
+        ampm = m.group("ampm").lower()
+        tz_str = m.group("tz").strip()
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(tz_str)
+        except Exception:
+            tz = timezone.utc
+        if ":" in time_str:
+            hour_str, minute_str = time_str.split(":")
+            hour, minute = int(hour_str), int(minute_str)
+        else:
+            hour, minute = int(time_str), 0
+        if ampm == "pm" and hour < 12:
+            hour += 12
+        elif ampm == "am" and hour == 12:
+            hour = 0
+        from datetime import timedelta
+        now_local = datetime.now(tz)
+        reset_local = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if reset_local <= now_local:
+            reset_local += timedelta(days=1)
+        return reset_local.astimezone(timezone.utc)
+
+    def _set_usage_pause(self, job_id: str, error: str):
+        """Persist a usage-limit pause so subsequent claude-mode jobs skip until reset."""
+        reset_at = self._parse_usage_reset(error)
+        if reset_at is None:
+            # Couldn't parse - pick a conservative 6h window. Better to wait
+            # too long than to burn a SIGTERM loop for hours.
+            from datetime import timedelta
+            reset_at = datetime.now(timezone.utc) + timedelta(hours=6)
+        self.state["usage_pause"] = {
+            "set_at": datetime.now(timezone.utc).isoformat(),
+            "reset_at": reset_at.isoformat(),
+            "raw_error": (error or "")[:200],
+            "set_by_job": job_id,
+        }
+        self._save_state()
+        self.logger.warning(
+            f"Job {job_id}: claude usage limit hit, pausing claude jobs until {reset_at.isoformat()}"
+        )
+
+    def _usage_pause_active(self):
+        """Return ISO reset_at if pause is active; clear stale flag and return None otherwise."""
+        pause = self.state.get("usage_pause")
+        if not pause:
+            return None
+        try:
+            reset_at = datetime.fromisoformat(pause["reset_at"])
+            if reset_at.tzinfo is None:
+                reset_at = reset_at.replace(tzinfo=timezone.utc)
+        except (KeyError, ValueError, TypeError):
+            self.state.pop("usage_pause", None)
+            self._save_state()
+            return None
+        if datetime.now(timezone.utc) >= reset_at:
+            self.logger.info(f"Claude usage pause expired at {reset_at.isoformat()}, resuming")
+            self.state.pop("usage_pause", None)
+            self._save_state()
+            return None
+        return reset_at.isoformat()
+
     def _schedule_retry(self, job: Dict, attempt: int):
         """Schedule a one-shot retry for a failed job."""
         retry_config = job.get("retry", {})
@@ -1147,6 +1236,28 @@ class JobManager:
             run_id += "_catchup"
 
         now = datetime.now(timezone.utc)
+
+        # Skip claude-mode jobs while a usage-limit pause is active. Bash jobs
+        # don't hit the Claude API so they're allowed through. Without this,
+        # _is_retryable_error sees exit-143 (jetsam SIGKILL on hanging sessions)
+        # as transient and keeps relaunching for hours.
+        # Regression: 2026-05-13 - heartbeat hit usage limit at 18:00 PDT, then
+        # 10+ subsequent launches hung 70-99 min each before being killed.
+        exec_config_pre = job.get("execution", {})
+        if exec_config_pre.get("mode", "isolated") != "bash":
+            pause_until = self._usage_pause_active()
+            if pause_until is not None:
+                self.logger.info(
+                    f"Skipping {job_id}: claude usage pause active until {pause_until}"
+                )
+                self._log_run({
+                    "timestamp": now.isoformat(),
+                    "job_id": job_id,
+                    "status": "skipped",
+                    "run_id": run_id,
+                    "error": f"Usage pause active until {pause_until}",
+                })
+                return
 
         # Log start
         self._log_run({
@@ -1484,6 +1595,13 @@ class JobManager:
                 if prev_status:
                     self.state["jobs_status"][job_id] = prev_status
                     self._save_state()
+                return
+
+            # Claude.ai subscription usage limit hit - pause all claude jobs
+            # until the reset window so we don't bleed cycles on SIGTERM kills.
+            if self._is_usage_limit_error(error_msg):
+                self._set_usage_pause(job_id, error_msg)
+                self._send_failure_alert(job_id, f"Usage limit hit: {error_msg}", duration)
                 return
 
             # Auth error - don't retry, alert immediately with fix instructions
