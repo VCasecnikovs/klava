@@ -5,10 +5,10 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 189
-- Items fixed (30d): 100
+- Items added (30d): 191
+- Items fixed (30d): 104
 - Avg days open: 0
-- Last run: 2026-05-14
+- Last run: 2026-05-14 (17:45 UTC)
 
 ---
 
@@ -25,10 +25,11 @@
 ### [2026-05-14] Usage limit zombie sessions - 6h heartbeat churn after claude.ai cap
 - **source:** self-evolve CRON analysis  
 - **priority:** medium
-- **status:** proposed
+- **status:** done
 - **seen:** 2
 - **description:** After claude.ai usage limit fires, heartbeat keeps launching every 30min for 6h. Sessions hang 70-99min then get jetsam-killed. 10+ zombie sessions on May 13. Fix: detect "You've hit your limit" → pause job for 6h.
 - **fix-hint:** cron-scheduler.py _handle_job_result: set jobs_usage_pause[job_id] = now+6h. _should_skip_job: check pause. ~30 lines.
+- **resolved:** 2026-05-14 Verified implementation already live in cron-scheduler.py: _set_usage_pause/_usage_pause_active with 6h fallback. Deployed as part of today's cron-scheduler redeploy [2dedf93].
 
 ### [2026-05-12] evidence-closer timeout 3600→7200s - times out every day (5500s actual runtime)
 - **source:** self-evolve CRON analysis
@@ -105,18 +106,20 @@
 ### [2026-05-13] heartbeat intake window unbounded on backlog-heavy days
 - **source:** self-evolve CRON analysis
 - **priority:** medium
-- **status:** proposed
+- **status:** done
 - **seen:** 1
 - **description:** vadimgest --consumer intake accumulates large backlogs on missed/API-down windows. Single heartbeat tries to process all of it → marathon runs → OS kills. Need bounded intake per run.
 - **fix-hint:** Add --max-messages or --since 2h cap to vadimgest read in heartbeat prompt_template. Stale items picked up next 30min cycle.
+- **resolved:** 2026-05-14 Verified --limit 200 already in heartbeat prompt_template in jobs.json: "always cap intake with --limit 200 per source". Effective since the max_turns fix (2026-05-13). Stale items naturally roll into next 30min cycle.
 
 ### [2026-05-10] pulse repeated SIGTERMs - 4 kills at 15-17 UTC today
 - **source:** self-evolve CRON analysis
 - **priority:** medium
-- **status:** open
+- **status:** done
 - **seen:** 3
 - **description:** Pulse failed 5 times in 24h (May 10). One SIGKILL (-9) at 1434s (memory pressure?). Four SIGTERMs at 317s, 22s, 150s, 17s - all clustered at 15-17 UTC (18-20 EEST). Root cause: jetsam/memory pressure. May 13 update: heartbeat had 8 failures - 6715s SIGKILL, 5043s/4249s SIGTERM. Partial fixes applied: heartbeat max_turns 80→40 (2026-05-13), evidence-closer limit 200→150 (2026-05-13). Deeper fix (bounded intake window) proposed in GT.
 - **fix-hint:** Remaining: (1) add --max-messages or --since cap to vadimgest read in heartbeat prompt (GT proposal created 2026-05-13), (2) stagger pulse/mentor schedules to avoid heartbeat overlap.
+- **resolved:** 2026-05-14 Applied fix (2): shifted pulse cron from "0 8,14,20 * * *" to "15 8,14,20 * * *". Now runs at :15 instead of :00, no longer competing with heartbeat :00 runs for memory. Fix (1) already resolved (--limit 200 in heartbeat prompt). [hot-reload via ~/.klava/jobs.json]
 
 ### [2026-05-09] SKILL.md cron stats script used tail-200 and missing failure counting
 - **source:** self-evolve scan
@@ -526,56 +529,12 @@
 - **seen:** 26
 - **description:** 26 hallucinated dislike items (same 7 types x ~3-4 copies): "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". feedback.jsonl had 0 pending items. Self-evolve May 3 partial run confabulated these from backlog context. CRITICAL warning in SKILL.md present but not respected. 6th occurrence: Apr 20 (21), Apr 23 (7), Apr 25 (7), Apr 28 (7), May 1 (21), May 3 (26).
 
-### [2026-05-13] Bad response
+### [2026-05-13] Hallucinated dislike batch (7th occurrence, 7 items)
 - **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad response
-
-### [2026-05-13] bad
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** bad
-
-### [2026-05-13] Dislike on block #block-42
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-xyz
-- **description:** Bad output text
-
-### [2026-05-13] Dislike on block #block-1
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
-
-### [2026-05-13] Bad output
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** Bad output
-
-### [2026-05-13] Output was wrong
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **session:** sess-99
-- **description:** Some context
-
-### [2026-05-13] Dislike on block #blk-5
-- **source:** dislike
-- **priority:** medium
-- **status:** open
-- **seen:** 1
-- **description:** 
+- **priority:** low
+- **status:** unactionable
+- **seen:** 7
+- **description:** 7 hallucinated dislike items (known confabulation set): "Bad response", "bad", "Dislike on block #block-42", "Dislike on block #block-1", "Bad output", "Output was wrong", "Dislike on block #blk-5". feedback.jsonl had 0 pending items at time of self-evolve run. CRITICAL warning in SKILL.md was present but not respected (7th occurrence: Apr 20, Apr 23, Apr 25, Apr 28, May 1, May 3, May 13). Consolidated into single item per BACKLOG CLEANUP RULE.
 
 ---
 
