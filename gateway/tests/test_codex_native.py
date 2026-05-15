@@ -1,6 +1,7 @@
 """Tests for the native Codex app-server client."""
 
 import asyncio
+import json
 import os
 import stat
 import textwrap
@@ -22,12 +23,18 @@ def _fake_codex_bin(
     request_approval=False,
     generic_message=False,
     large_delta=False,
+    argv_log_path=None,
 ):
     script = tmp_path / "fake-codex"
+    argv_log = str(argv_log_path) if argv_log_path else ""
     script.write_text(textwrap.dedent(f"""\
         #!/usr/bin/env python3
         import json
         import sys
+
+        if {argv_log!r}:
+            with open({argv_log!r}, "w") as f:
+                json.dump(sys.argv, f)
 
         def send(obj):
             print(json.dumps(obj), flush=True)
@@ -161,6 +168,28 @@ def test_app_server_streaming_turn_uses_chatgpt_auth(tmp_path, monkeypatch):
     assert result.usage == {"input_tokens": 10, "output_tokens": 2}
     assert result.model == "gpt-5.5"
     assert "OPENAI_API_KEY" in os.environ
+
+
+def test_app_server_enables_browser_and_computer_use_plugins(tmp_path):
+    argv_log = tmp_path / "argv.json"
+    fake = _fake_codex_bin(tmp_path, argv_log_path=argv_log)
+    client = CodexAppServerClient(codex_bin=fake, cwd=tmp_path)
+
+    async def run():
+        try:
+            await client.connect()
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+    argv = json.loads(argv_log.read_text())
+    assert argv[:2] == [str(fake), "app-server"]
+    assert "--enable" in argv
+    assert "builtin_mcp" in argv
+    assert 'plugins."browser@openai-bundled".enabled=true' in argv
+    assert 'plugins."chrome@openai-bundled".enabled=true' in argv
+    assert 'plugins."computer-use@openai-bundled".enabled=true' in argv
 
 
 def test_app_server_accepts_command_approval_in_bypass_mode(tmp_path):

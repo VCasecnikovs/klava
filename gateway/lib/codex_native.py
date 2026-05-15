@@ -14,6 +14,12 @@ API_KEY_ENV_KEYS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 CODEX_DANGER_FULL_ACCESS_MODE = "danger-full-access"
 CODEX_DANGER_FULL_ACCESS_POLICY = {"type": "dangerFullAccess"}
 CODEX_APP_SERVER_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
+CODEX_APP_SERVER_FEATURES = ("builtin_mcp",)
+CODEX_APP_SERVER_PLUGIN_IDS = (
+    "browser@openai-bundled",
+    "chrome@openai-bundled",
+    "computer-use@openai-bundled",
+)
 
 
 class CodexNativeError(RuntimeError):
@@ -108,13 +114,20 @@ class CodexAppServerClient:
         for key in API_KEY_ENV_KEYS:
             env.pop(key, None)
 
-        self.proc = await asyncio.create_subprocess_exec(
+        args = [
             self.codex_bin,
             "app-server",
             "-c",
             'forced_login_method="chatgpt"',
-            "--listen",
-            "stdio://",
+        ]
+        for feature in CODEX_APP_SERVER_FEATURES:
+            args.extend(["--enable", feature])
+        for plugin_id in CODEX_APP_SERVER_PLUGIN_IDS:
+            args.extend(["-c", f'plugins."{plugin_id}".enabled=true'])
+        args.extend(["--listen", "stdio://"])
+
+        self.proc = await asyncio.create_subprocess_exec(
+            *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
