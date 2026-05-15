@@ -13,6 +13,7 @@ CODEX_NATIVE_PREFIXES = ("codex:", "codex-native:")
 API_KEY_ENV_KEYS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 CODEX_DANGER_FULL_ACCESS_MODE = "danger-full-access"
 CODEX_DANGER_FULL_ACCESS_POLICY = {"type": "dangerFullAccess"}
+CODEX_APP_SERVER_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
 
 
 class CodexNativeError(RuntimeError):
@@ -119,6 +120,7 @@ class CodexAppServerClient:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(self.cwd),
             env=env,
+            limit=CODEX_APP_SERVER_STREAM_LIMIT_BYTES,
         )
         self._stderr_task = asyncio.create_task(self._collect_stderr())
         await self.request(

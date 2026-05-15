@@ -16,7 +16,13 @@ from lib.codex_native import (
 )
 
 
-def _fake_codex_bin(tmp_path, account_type="chatgpt", request_approval=False, generic_message=False):
+def _fake_codex_bin(
+    tmp_path,
+    account_type="chatgpt",
+    request_approval=False,
+    generic_message=False,
+    large_delta=False,
+):
     script = tmp_path / "fake-codex"
     script.write_text(textwrap.dedent(f"""\
         #!/usr/bin/env python3
@@ -84,7 +90,12 @@ def _fake_codex_bin(tmp_path, account_type="chatgpt", request_approval=False, ge
                     }}}})
                     continue
                 send({{"id": mid, "result": {{"turn": {{"id": "turn_fake", "status": "inProgress"}}}}}})
-                if {generic_message!r}:
+                if {large_delta!r}:
+                    send({{"method": "item/agentMessage/delta", "params": {{"delta": "x" * 200000}}}})
+                    send({{"method": "item/completed", "params": {{
+                        "item": {{"type": "agentMessage", "id": "item_fake", "text": "x" * 200000}}
+                    }}}})
+                elif {generic_message!r}:
                     send({{"method": "item/completed", "params": {{
                         "item": {{"type": "message", "role": "assistant", "id": "item_fake", "content": [
                             {{"type": "output_text", "text": "Hello Codex"}}
@@ -199,6 +210,31 @@ def test_app_server_streams_generic_assistant_message_items(tmp_path):
 
     assert result.text == "Hello Codex"
     assert deltas == ["Hello Codex"]
+
+
+def test_app_server_reads_large_json_rpc_lines(tmp_path):
+    fake = _fake_codex_bin(tmp_path, large_delta=True)
+    client = CodexAppServerClient(codex_bin=fake, cwd=tmp_path)
+    deltas = []
+
+    async def run():
+        try:
+            await client.connect()
+            thread_id = await client.start_or_resume_thread(None, cwd=tmp_path)
+            return await client.run_turn(
+                thread_id=thread_id,
+                prompt="Write a long message",
+                model="codex:gpt-5.5",
+                cwd=tmp_path,
+                on_text_delta=lambda d: _append_async(deltas, d),
+            )
+        finally:
+            await client.close()
+
+    result = asyncio.run(run())
+
+    assert len(result.text) == 200000
+    assert [len(d) for d in deltas] == [200000]
 
 
 def test_app_server_rejects_api_key_auth(tmp_path):
