@@ -187,18 +187,28 @@ def infer_scope(text: str, default: Optional[str] = None) -> Optional[str]:
     lo = text.lower()
     cfg = load_scope_map()
 
+    def contains_token(haystack: str, token: str) -> bool:
+        token = token.strip().lower()
+        if not token:
+            return False
+        # Scope tokens are human/project words, not CSS/browser identifiers.
+        # This prevents generic view CSS such as `font-family: -apple-system`
+        # from matching the Apple deal scope.
+        pattern = rf"(?<![a-z0-9_-]){re.escape(token)}(?![a-z0-9_-])"
+        return re.search(pattern, haystack) is not None
+
     candidates: List[tuple[str, str]] = []  # (token, scope)
     for token, scope in (cfg.get("entity_to_scope") or {}).items():
         if not token or not scope:
             continue
-        if str(token).lower() in lo:
+        if contains_token(lo, str(token)):
             v = validate_scope(str(scope))
             if v:
                 candidates.append((str(token), v))
 
     for scope in list_known_scopes():
         last = scope.rstrip("/").rsplit("/", 1)[-1]
-        if len(last) >= 3 and last.lower() in lo:
+        if len(last) >= 3 and contains_token(lo, last):
             candidates.append((last, scope))
 
     if not candidates:
@@ -378,6 +388,10 @@ def _cross_refs(notes: List[tuple[Path, float, str]]) -> tuple[List[str], List[s
 
 _VIEW_TITLE_RE = re.compile(r"<title>([^<]{1,200})</title>", re.IGNORECASE)
 _VIEW_H1_RE = re.compile(r"<h1[^>]*>([^<]{1,200})</h1>", re.IGNORECASE)
+_VIEW_SUBTITLE_RE = re.compile(r'class="subtitle"[^>]*>(.*?)</div>', re.IGNORECASE | re.DOTALL)
+_VIEW_STYLE_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+_VIEW_HEAD_RE = re.compile(r"<head\b[^>]*>.*?</head>", re.IGNORECASE | re.DOTALL)
+_VIEW_TAG_RE = re.compile(r"<[^>]+>")
 _VIEWS_LIMIT = 20
 
 
@@ -451,7 +465,26 @@ def view_scope_for(filename: str, head_content: str = "") -> Optional[str]:
     explicit = overrides.get(filename)
     if explicit:
         return explicit
-    return infer_scope((Path(filename).stem if filename else "") + " " + (head_content or ""))
+    return infer_scope(_view_inference_text(filename, head_content))
+
+
+def _clean_view_fragment(html: str) -> str:
+    text = _VIEW_STYLE_SCRIPT_RE.sub(" ", html or "")
+    text = _VIEW_TAG_RE.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _view_inference_text(filename: str, head_content: str = "") -> str:
+    """Build view scope evidence from user-visible text, not HTML/CSS chrome."""
+    html = head_content or ""
+    parts = [Path(filename).stem if filename else ""]
+    for regex in (_VIEW_TITLE_RE, _VIEW_H1_RE, _VIEW_SUBTITLE_RE):
+        m = regex.search(html)
+        if m:
+            parts.append(_clean_view_fragment(m.group(1)))
+    bodyish = _VIEW_HEAD_RE.sub(" ", html)
+    parts.append(_clean_view_fragment(bodyish)[:1000])
+    return " ".join(p for p in parts if p)
 
 
 def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, object]]:
@@ -487,7 +520,7 @@ def views_for_scope(scope: str, limit: int = _VIEWS_LIMIT) -> List[Dict[str, obj
                 head = path.read_text(encoding="utf-8", errors="replace")[:2000]
             except OSError:
                 head = ""
-        resolved = explicit or infer_scope(path.stem + " " + head)
+        resolved = explicit or view_scope_for(path.name, head)
         if not resolved or not matches_scope(resolved, scope):
             continue
         # We still want a title; read head if we skipped it for explicit.

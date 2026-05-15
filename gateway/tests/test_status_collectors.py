@@ -442,6 +442,28 @@ class TestCollectViewsData:
         names = [v["filename"] for v in result["views"]]
         assert "dashboard.html" not in names
 
+    def test_does_not_infer_apple_scope_from_system_font(self, tmp_path, monkeypatch):
+        import tasks.scope as scope_module
+
+        monkeypatch.setattr(sc, "VIEWS_DIR", tmp_path)
+        monkeypatch.setattr(
+            scope_module,
+            "load_scope_map",
+            lambda: {"entity_to_scope": {"Apple": "Vox Lab/Deals/Apple/"}, "known_scopes": []},
+        )
+        monkeypatch.setattr(
+            scope_module,
+            "list_known_scopes",
+            lambda: ["Vox Lab/Deals/Apple/"],
+        )
+        (tmp_path / "report.html").write_text(
+            "<html><head><style>body{font-family:-apple-system,BlinkMacSystemFont}</style></head>"
+            "<body>Generic report</body></html>"
+        )
+
+        result = sc.collect_views_data()
+        assert result["views"][0]["scope"] is None
+
 
 # ── collect_feed_data ──
 

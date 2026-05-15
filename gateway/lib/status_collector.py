@@ -4633,11 +4633,11 @@ def collect_views_data() -> Dict:
 
     # Resolve scope per view: explicit Views/_scopes.json wins, else infer.
     try:
-        from tasks.scope import load_view_scope_overrides, infer_scope as _infer_scope
+        from tasks.scope import load_view_scope_overrides, view_scope_for as _view_scope_for
         scope_overrides = load_view_scope_overrides()
     except Exception:
         scope_overrides = {}
-        _infer_scope = None
+        _view_scope_for = None
 
     views = []
     if VIEWS_DIR.exists():
@@ -4664,9 +4664,9 @@ def collect_views_data() -> Dict:
 
                 explicit_scope = scope_overrides.get(filepath.name)
                 inferred_scope = None
-                if not explicit_scope and _infer_scope is not None:
+                if not explicit_scope and _view_scope_for is not None:
                     try:
-                        inferred_scope = _infer_scope(filepath.stem + " " + content)
+                        inferred_scope = _view_scope_for(filepath.name, content)
                     except Exception:
                         inferred_scope = None
 
