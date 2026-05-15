@@ -245,6 +245,15 @@ describe('formatToolInput', () => {
     expect(result).toContain('vitest docs');
   });
 
+  it('formats native web.run with nested tool calls', () => {
+    const result = formatToolInput('web.run', {
+      search_query: [{ q: 'Codex tools' }],
+      response_length: 'short',
+    });
+    expect(result).toContain('search_query');
+    expect(result).toContain('Codex tools');
+  });
+
   it('formats WebFetch with domain', () => {
     const result = formatToolInput('WebFetch', { url: 'https://example.com/page', prompt: 'Extract data' });
     expect(result).toContain('example.com');
@@ -276,8 +285,10 @@ describe('formatToolInput', () => {
     expect(result).toContain('-m fix');
   });
 
-  it('returns null for unknown tool', () => {
-    expect(formatToolInput('UnknownTool', { data: 'x' })).toBeNull();
+  it('renders generic parameters for unknown tools', () => {
+    const result = formatToolInput('UnknownTool', { data: 'x' });
+    expect(result).toContain('data');
+    expect(result).toContain('x');
   });
 });
 

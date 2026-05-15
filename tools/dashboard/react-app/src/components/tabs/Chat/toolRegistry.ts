@@ -57,14 +57,24 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
   PowerShell: cfg('PS', 'orange', 'Shell', 'run', 'approval', 'exec'),
   Monitor: cfg('&#128250;', 'orange', 'Shell', 'watch', 'approval', 'exec'),
   WebSearch: cfg('&#127760;', 'cyan', 'Web', 'search', 'approval', 'web'),
+  'web.run': cfg('&#127760;', 'cyan', 'Web', 'use web', 'approval', 'web'),
   search_query: cfg('&#127760;', 'cyan', 'Web', 'search', 'approval', 'web'),
   image_query: cfg('&#128247;', 'cyan', 'Web', 'image search', 'approval', 'web'),
   open: cfg('&#128279;', 'teal', 'Web', 'open', 'approval', 'web'),
   click: cfg('&#128433;', 'teal', 'Web', 'click', 'approval', 'web'),
   find: cfg('&#128269;', 'teal', 'Web', 'find', 'approval', 'web'),
+  finance: cfg('&#128200;', 'teal', 'Web', 'finance', 'approval', 'web'),
+  weather: cfg('&#9729;', 'teal', 'Web', 'weather', 'approval', 'web'),
+  sports: cfg('&#127942;', 'teal', 'Web', 'sports', 'approval', 'web'),
+  time: cfg('&#9201;', 'teal', 'Web', 'time', 'approval', 'web'),
   WebFetch: cfg('&#128279;', 'teal', 'Web', 'fetch', 'approval', 'web'),
   Agent: cfg('&#129302;', 'violet', 'Agents', 'delegate', 'auto', 'agent'),
   Task: cfg('&#129302;', 'amber', 'Agents', 'delegate', 'auto', 'agent'),
+  spawn_agent: cfg('&#129302;', 'violet', 'Agents', 'spawn', 'auto', 'agent'),
+  send_input: cfg('&#9993;', 'violet', 'Agents', 'message', 'auto', 'agent'),
+  wait_agent: cfg('&#9203;', 'violet', 'Agents', 'wait', 'auto', 'agent'),
+  close_agent: cfg('&#9632;', 'violet', 'Agents', 'close', 'auto', 'agent'),
+  resume_agent: cfg('&#8635;', 'violet', 'Agents', 'resume', 'auto', 'agent'),
   TeamCreate: cfg('&#8756;', 'violet', 'Teams', 'create team', 'auto', 'agent'),
   TeamDelete: cfg('&#8756;', 'violet', 'Teams', 'delete team', 'auto', 'agent'),
   SendMessage: cfg('&#9993;', 'violet', 'Teams', 'message', 'auto', 'agent'),
@@ -73,6 +83,7 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
   TaskList: cfg('&#128203;', 'emerald', 'Tasks', 'list', 'auto', 'read'),
   TaskGet: cfg('&#128203;', 'emerald', 'Tasks', 'open', 'auto', 'read'),
   TodoWrite: cfg('&#9745;', 'emerald', 'Todos', 'sync', 'auto', 'system'),
+  update_plan: cfg('&#9745;', 'emerald', 'Todos', 'sync', 'auto', 'system'),
   TaskOutput: cfg('&#8617;', 'dark', 'Background', 'read output', 'auto', 'read'),
   TaskStop: cfg('&#9632;', 'red', 'Background', 'stop', 'auto', 'system'),
   CronCreate: cfg('&#9202;', 'teal', 'Schedule', 'schedule', 'auto', 'system'),
@@ -83,12 +94,19 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
   EnterWorktree: cfg('&#9176;', 'teal', 'Worktree', 'enter', 'auto', 'system'),
   ExitWorktree: cfg('&#9176;', 'teal', 'Worktree', 'exit', 'auto', 'system'),
   AskUserQuestion: cfg('&#10067;', 'lightOrange', 'Question', 'ask', 'auto', 'question'),
+  request_user_input: cfg('&#10067;', 'lightOrange', 'Question', 'ask', 'auto', 'question'),
   Skill: cfg('&#9889;', 'pink', 'Skills', 'invoke', 'approval', 'system'),
   ToolSearch: cfg('&#128268;', 'dark', 'Tools', 'discover', 'auto', 'read'),
   ToolSearchRegex: cfg('&#128268;', 'dark', 'Tools', 'discover', 'auto', 'read'),
   ToolSearchBM25: cfg('&#128268;', 'dark', 'Tools', 'discover', 'auto', 'read'),
   ListMcpResourcesTool: cfg('MCP', 'teal', 'MCP', 'list resources', 'auto', 'read'),
   ReadMcpResourceTool: cfg('MCP', 'teal', 'MCP', 'read resource', 'auto', 'read'),
+  list_mcp_resources: cfg('MCP', 'teal', 'MCP', 'list resources', 'auto', 'read'),
+  list_mcp_resource_templates: cfg('MCP', 'teal', 'MCP', 'list templates', 'auto', 'read'),
+  read_mcp_resource: cfg('MCP', 'teal', 'MCP', 'read resource', 'auto', 'read'),
+  view_image: cfg('&#128247;', 'pink', 'Images', 'view image', 'auto', 'read'),
+  imagegen: cfg('&#127912;', 'pink', 'Images', 'generate', 'approval', 'write'),
+  'image_gen.imagegen': cfg('&#127912;', 'pink', 'Images', 'generate', 'approval', 'write'),
   ShareOnboardingGuide: cfg('&#128218;', 'pink', 'Onboarding', 'share', 'approval', 'web'),
   CodeExecution: cfg('&#128013;', 'green', 'Execution', 'run code', 'approval', 'exec'),
   BashCodeExecution: cfg('&#9654;', 'green', 'Execution', 'run shell', 'approval', 'exec'),
@@ -195,6 +213,7 @@ export function getToolSummary(tool: string, input: any): string {
   if (tool === 'Read' && input.file_path) return fileName(input.file_path);
   if (tool === 'Bash' || tool === 'exec_command' || tool === 'shell' || tool === 'PowerShell' || tool === 'Monitor') return truncate(input.description || input.command || input.cmd || '', 80, false);
   if (tool === 'write_stdin') return input.chars ? truncate(input.chars, 80, false) : `session ${input.session_id || ''}`.trim();
+  if (tool === 'web.run') return summarizeWebRun(input);
   if (tool === 'Edit' && input.file_path) return fileName(input.file_path);
   if ((tool === 'Edit' || tool === 'apply_patch') && input.patch) return 'apply patch';
   if (tool === 'NotebookEdit' && input.notebook_path) return `${fileName(input.notebook_path)} cell ${input.cell_number ?? ''}`.trim();
@@ -209,12 +228,16 @@ export function getToolSummary(tool: string, input: any): string {
   if (tool === 'WebFetch' && input.url) {
     try { return new URL(input.url).hostname; } catch { return truncate(input.url, 40); }
   }
-  if (tool === 'Agent' || tool === 'Task') {
+  if (tool === 'Agent' || tool === 'Task' || tool === 'spawn_agent') {
     const parts: string[] = [];
-    if (input.subagent_type) parts.push(`[${input.subagent_type}]`);
+    if (input.subagent_type || input.agent_type) parts.push(`[${input.subagent_type || input.agent_type}]`);
     if (input.description) parts.push(input.description);
+    if (input.message) parts.push(input.message);
     return parts.join(' ') || '';
   }
+  if (tool === 'send_input') return input.target || truncate(input.message || '', 80);
+  if (tool === 'wait_agent') return Array.isArray(input.targets) ? input.targets.join(', ') : '';
+  if (tool === 'close_agent' || tool === 'resume_agent') return input.target || input.id || '';
   if (tool === 'TodoWrite') {
     const t = Array.isArray(input.todos) ? input.todos : [];
     const d = t.filter((x: { status: string }) => x.status === 'completed').length;
@@ -236,7 +259,11 @@ export function getToolSummary(tool: string, input: any): string {
   if (tool === 'CodeExecution' || tool === 'BashCodeExecution') return truncate(input.command || input.code || '', 80);
   if (tool === 'TextEditorCodeExecution') return input.command || input.path || input.file_path || '';
   if (tool === 'AskUserQuestion') return (input.questions || [])[0]?.question?.substring(0, 60) || '';
+  if (tool === 'request_user_input') return (input.questions || [])[0]?.question?.substring(0, 60) || '';
+  if (tool === 'update_plan') return Array.isArray(input.plan) ? `${input.plan.length} steps` : '';
   if (tool === 'Skill') return input.skill || '';
+  if (tool === 'view_image') return fileName(input.path || '');
+  if (tool === 'imagegen' || tool === 'image_gen.imagegen') return truncate(input.prompt || '', 80);
   if (tool === 'CronCreate') return `${input.cron || ''} ${input.recurring === false ? 'once' : 'recurring'}`.trim();
   if (tool === 'CronDelete') return input.id || '';
   if (tool === 'CronList') return 'scheduled prompts';
@@ -248,6 +275,16 @@ export function getToolSummary(tool: string, input: any): string {
   if (tool?.startsWith('mcp__')) return getMcpSummary(tool, input);
   if (tool?.startsWith('multi_tool_use.')) return Array.isArray(input.tool_uses) ? `${input.tool_uses.length} tool uses` : '';
   return firstString(input, ['cmd', 'command', 'chars', 'query', 'q', 'url', 'ref_id', 'path', 'file_path', 'name', 'id', 'text', 'input', 'patch']) || '';
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function summarizeWebRun(input: any): string {
+  const keys = ['search_query', 'image_query', 'open', 'click', 'find', 'finance', 'weather', 'sports', 'time'];
+  const active = keys.filter(k => Array.isArray(input?.[k]) && input[k].length);
+  if (!active.length) return '';
+  if (active.includes('search_query')) return input.search_query.map((q: { q?: string }) => q.q).filter(Boolean).join(', ');
+  if (active.includes('image_query')) return input.image_query.map((q: { q?: string }) => q.q).filter(Boolean).join(', ');
+  return active.join(', ');
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -325,6 +362,8 @@ export function formatToolInput(toolName: string, input: any): string | null {
     case 'WebSearch':
     case 'search_query':
       return `<div class="tool-query-card"><span class="tool-quote-mark">search</span><span>${esc(input.query || '')}</span></div>`;
+    case 'web.run':
+      return renderGenericPanel(input, ['search_query', 'image_query', 'open', 'click', 'find', 'finance', 'weather', 'sports', 'time', 'response_length']);
     case 'image_query':
       return `<div class="tool-query-card"><span class="tool-quote-mark">image</span><span>${esc(JSON.stringify(input.image_query || input.query || input.q || ''))}</span></div>`;
     case 'open':
@@ -361,6 +400,12 @@ export function formatToolInput(toolName: string, input: any): string | null {
       h += `<div class="chat-task-timer"></div></div>`;
       return h;
     }
+    case 'spawn_agent':
+    case 'send_input':
+    case 'wait_agent':
+    case 'close_agent':
+    case 'resume_agent':
+      return renderGenericPanel(input, ['agent_type', 'target', 'targets', 'id', 'message', 'items', 'timeout_ms']);
     case 'TaskCreate': {
       let h = `<div class="tool-task-card">`;
       if (input.subject || input.content) h += `<div class="tool-agent-title">${esc(input.subject || input.content)}</div>`;
@@ -392,9 +437,17 @@ export function formatToolInput(toolName: string, input: any): string | null {
     case 'TodoWrite':
       return renderTodoHtml(Array.isArray(input.todos) ? input.todos : []);
     case 'AskUserQuestion':
+    case 'request_user_input':
       return renderQuestionsHtml(Array.isArray(input.questions) ? input.questions : []);
+    case 'update_plan':
+      return renderTodoHtml(Array.isArray(input.plan) ? input.plan.map((p: { status?: string; step?: string }) => ({ status: p.status, content: p.step })) : []);
     case 'Skill':
       return `<div class="tool-query-card"><span class="tool-quote-mark">skill</span><span style="color:#e879f9">/${esc(input.skill || '')}</span>${input.args ? `<code>${esc(input.args)}</code>` : ''}</div>`;
+    case 'view_image':
+      return `<div class="tool-file-path"><span style="opacity:0.6">&#128247;</span><span style="color:var(--text-muted)">${esc(dirname(input.path || ''))}</span><span style="color:var(--text)">${esc(fileName(input.path || ''))}</span></div>`;
+    case 'imagegen':
+    case 'image_gen.imagegen':
+      return renderPromptPreview(input.prompt || '', 500);
     case 'apply_patch':
       return `<pre class="tool-code-preview tall">${esc(input.patch || input.input || JSON.stringify(input, null, 2))}</pre>`;
     case 'CronCreate':
@@ -410,6 +463,9 @@ export function formatToolInput(toolName: string, input: any): string | null {
     case 'SendMessage':
     case 'ListMcpResourcesTool':
     case 'ReadMcpResourceTool':
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+    case 'read_mcp_resource':
     case 'ShareOnboardingGuide':
       return renderGenericPanel(input, ['team_name', 'description', 'to', 'summary', 'message', 'name', 'path', 'action', 'uri']);
     default:
