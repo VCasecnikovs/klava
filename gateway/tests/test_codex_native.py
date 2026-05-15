@@ -23,6 +23,7 @@ def _fake_codex_bin(
     request_approval=False,
     generic_message=False,
     large_delta=False,
+    completion_message=False,
     argv_log_path=None,
 ):
     script = tmp_path / "fake-codex"
@@ -108,6 +109,8 @@ def _fake_codex_bin(
                             {{"type": "output_text", "text": "Hello Codex"}}
                         ]}}
                     }}}})
+                elif {completion_message!r}:
+                    pass
                 else:
                     send({{"method": "item/agentMessage/delta", "params": {{"delta": "Hello "}}}})
                     send({{"method": "item/completed", "params": {{
@@ -116,9 +119,10 @@ def _fake_codex_bin(
                 send({{"method": "thread/tokenUsage/updated", "params": {{
                     "usage": {{"input_tokens": 10, "output_tokens": 2}}
                 }}}})
-                send({{"method": "turn/completed", "params": {{
-                    "turn": {{"id": "turn_fake", "status": "completed"}}
-                }}}})
+                turn = {{"id": "turn_fake", "status": "completed"}}
+                if {completion_message!r}:
+                    turn["lastAgentMessage"] = "Hello from completion"
+                send({{"method": "turn/completed", "params": {{"turn": turn}}}})
             else:
                 send({{"id": mid, "result": {{}}}})
     """))
@@ -239,6 +243,31 @@ def test_app_server_streams_generic_assistant_message_items(tmp_path):
 
     assert result.text == "Hello Codex"
     assert deltas == ["Hello Codex"]
+
+
+def test_app_server_streams_final_completion_message(tmp_path):
+    fake = _fake_codex_bin(tmp_path, completion_message=True)
+    client = CodexAppServerClient(codex_bin=fake, cwd=tmp_path)
+    deltas = []
+
+    async def run():
+        try:
+            await client.connect()
+            thread_id = await client.start_or_resume_thread(None, cwd=tmp_path)
+            return await client.run_turn(
+                thread_id=thread_id,
+                prompt="Say hello",
+                model="codex:gpt-5.5",
+                cwd=tmp_path,
+                on_text_delta=lambda d: _append_async(deltas, d),
+            )
+        finally:
+            await client.close()
+
+    result = asyncio.run(run())
+
+    assert result.text == "Hello from completion"
+    assert deltas == ["Hello from completion"]
 
 
 def test_app_server_reads_large_json_rpc_lines(tmp_path):

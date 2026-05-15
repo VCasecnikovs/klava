@@ -82,6 +82,21 @@ def _completed_item_text(item: dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _completion_text(payload: dict[str, Any]) -> str:
+    """Extract final assistant text from Codex turn/task completion payloads."""
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("last_agent_message", "lastAgentMessage", "final_message", "finalMessage"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    for key in ("summary", "output", "text", "message"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 @dataclass
 class CodexTurnResult:
     thread_id: str
@@ -281,6 +296,12 @@ class CodexAppServerClient:
             elif method == "turn/completed":
                 completed = payload.get("turn") or {}
                 status = str(completed.get("status") or status)
+                final_text = _completion_text(completed)
+                if final_text and final_text != text:
+                    delta = final_text[len(text):] if final_text.startswith(text) else final_text
+                    text = final_text
+                    if on_text_delta and delta:
+                        await on_text_delta(delta)
                 if completed.get("usage"):
                     usage = completed.get("usage") or usage
                 error = completed.get("error")
