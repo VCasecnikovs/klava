@@ -333,6 +333,40 @@ class TestIsRetryableError:
         assert job_manager._is_retryable_error("") is False
 
 
+# ── _is_zombie_failure ────────────────────────────────────────────────
+# Regression: 2026-05-15 - heartbeat session ran 3000s with $0 cost while
+# asyncio held a ConnectionRefused socket open through the hard-kill watchdog.
+# Retrying burns another heartbeat slot for the same hang; zombie pattern
+# (duration > 600s AND cost < $0.01) suppresses retry.
+
+class TestIsZombieFailure:
+    def test_long_zero_cost_is_zombie(self, job_manager):
+        assert job_manager._is_zombie_failure(3000.0, 0.0) is True
+
+    def test_long_low_cost_is_zombie(self, job_manager):
+        # Tiny token usage from MCP init before the hang still counts as zombie.
+        assert job_manager._is_zombie_failure(1200.0, 0.005) is True
+
+    def test_long_real_cost_is_not_zombie(self, job_manager):
+        # Real session that just happened to fail near the timeout.
+        assert job_manager._is_zombie_failure(800.0, 0.50) is False
+
+    def test_short_zero_cost_is_not_zombie(self, job_manager):
+        # Auth failure or syntax error - not a zombie, handled elsewhere.
+        assert job_manager._is_zombie_failure(30.0, 0.0) is False
+
+    def test_at_threshold_is_not_zombie(self, job_manager):
+        # Exactly 600s is not "long enough"; needs to exceed the threshold.
+        assert job_manager._is_zombie_failure(600.0, 0.0) is False
+
+    def test_cost_at_threshold_is_not_zombie(self, job_manager):
+        # Exactly $0.01 is real spend, not a zombie.
+        assert job_manager._is_zombie_failure(700.0, 0.01) is False
+
+    def test_none_cost_treated_as_zero(self, job_manager):
+        assert job_manager._is_zombie_failure(700.0, None) is True
+
+
 # ── usage limit detection + pause ────────────────────────────────────
 # Regression: 2026-05-13 - heartbeat hit "You've hit your limit · resets
 # 6pm (America/Los_Angeles)" at 18:00 PDT, then 10+ subsequent launches
@@ -2366,6 +2400,52 @@ class TestProcessJobResultAdvanced:
              patch.object(cs, "register_session"), \
              patch.object(cs, "send_feed"):
             job_manager._process_job_result(job, "run1", result, now, 5.0, {}, None, None, 0)
+
+        mock_retry.assert_called_once_with(job, 0)
+
+    def test_zombie_failure_suppresses_retry(self, job_manager):
+        # Regression: 2026-05-15. A heartbeat that ran 3000s with $0 cost is
+        # a zombie (asyncio stuck on refused socket). _is_retryable_error sees
+        # the timeout string as retryable, but the zombie guard fires first.
+        job = {"id": "heartbeat", "execution": {}, "retry": {"max_attempts": 3, "delay_minutes": 5}}
+        job_manager.state = {
+            "jobs_status": {},
+            "_prev_job_status": {},
+        }
+        now = datetime.now(timezone.utc)
+
+        # TimeoutError would normally be retryable, but cost=0 + long duration
+        # marks this as a zombie that should not be retried.
+        result = self._make_result(error="TimeoutError: request timed out", cost=0.0)
+
+        with patch.object(job_manager, "_log_run"), \
+             patch.object(job_manager, "_save_state"), \
+             patch.object(job_manager, "_schedule_retry") as mock_retry, \
+             patch.object(job_manager, "_send_failure_alert") as mock_alert, \
+             patch.object(cs, "register_session"), \
+             patch.object(cs, "send_feed"):
+            job_manager._process_job_result(job, "run1", result, now, 3000.0, {}, None, None, 0)
+
+        mock_retry.assert_not_called()
+        mock_alert.assert_called_once()
+        # The alert message must call out the zombie signal for human readers.
+        assert "zombie" in mock_alert.call_args[0][1].lower()
+
+    def test_long_failure_with_real_cost_still_retries(self, job_manager):
+        # A real session that timed out with non-trivial spend is NOT a zombie -
+        # it did work, so the existing retry policy still applies.
+        job = {"id": "heartbeat", "execution": {}, "retry": {"max_attempts": 3, "delay_minutes": 5}}
+        job_manager.state = {"jobs_status": {}, "_prev_job_status": {}}
+        now = datetime.now(timezone.utc)
+
+        result = self._make_result(error="TimeoutError: request timed out", cost=0.50)
+
+        with patch.object(job_manager, "_log_run"), \
+             patch.object(job_manager, "_save_state"), \
+             patch.object(job_manager, "_schedule_retry") as mock_retry, \
+             patch.object(cs, "register_session"), \
+             patch.object(cs, "send_feed"):
+            job_manager._process_job_result(job, "run1", result, now, 1200.0, {}, None, None, 0)
 
         mock_retry.assert_called_once_with(job, 0)
 
