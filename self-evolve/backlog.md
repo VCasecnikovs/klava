@@ -5,14 +5,22 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 192
+- Items added (30d): 194
 - Items fixed (30d): 105
 - Avg days open: 0
-- Last run: 2026-05-15 (08:35 UTC)
+- Last run: 2026-05-15 (17:45 UTC)
 
 ---
 
 ## Items
+
+### [2026-05-15] API outage cascades - 15 heartbeat failures, 0-cost zombies persist 50+ min
+- **source:** self-evolve CRON analysis
+- **priority:** medium
+- **status:** proposed
+- **seen:** 1
+- **description:** Today's 24h: 15 heartbeat failures (31% fail rate), root causes: ECONNRESET, ConnectionRefused, stream idle timeout. Some sessions (cost=$0) ran 3000s without doing anything. The run_detached() hard-kill fires at timeout+60s and kills child processes, but asyncio socket waits can persist for 200s after that. Proposal: add a "zero-cost sentinel" in the executor - if a detached job has been running > 600s AND has not written any cost (checked via job run state), kill it. This is detectable because cost accrues on each claude API call.
+- **fix-hint:** Monitor detached job cost via prometheus-style counter. Or simpler: use run_id file-size growth check. Or simplest: in cron-scheduler, after wait_for_result returns error, log a warning if duration > 600 and cost < 0.01.
 
 ### [2026-05-15] heartbeat max_turns 40→50 - turns=41 failures 5x/day
 - **source:** self-evolve CRON analysis
