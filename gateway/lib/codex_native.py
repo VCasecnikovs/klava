@@ -280,34 +280,28 @@ class CodexAppServerClient:
                 delta = payload.get("delta") or payload.get("textDelta") or payload.get("text") or ""
                 if delta:
                     text += str(delta)
-                    if on_text_delta:
-                        await on_text_delta(str(delta))
             elif method == "item/completed":
                 item = payload.get("item") or {}
                 full_text = _completed_item_text(item)
                 if full_text is not None:
-                    if len(full_text) > len(text):
-                        delta = full_text[len(text):]
+                    if full_text != text:
                         text = full_text
-                        if on_text_delta and delta:
-                            await on_text_delta(delta)
             elif method == "thread/tokenUsage/updated":
                 usage = payload.get("usage") or payload.get("tokenUsage") or usage
             elif method == "turn/completed":
                 completed = payload.get("turn") or {}
                 status = str(completed.get("status") or status)
-                final_text = _completion_text(completed)
+                final_text = _completion_text(completed) or text
                 if final_text and final_text != text:
-                    delta = final_text[len(text):] if final_text.startswith(text) else final_text
                     text = final_text
-                    if on_text_delta and delta:
-                        await on_text_delta(delta)
                 if completed.get("usage"):
                     usage = completed.get("usage") or usage
                 error = completed.get("error")
                 if status == "failed" and error:
                     message = error.get("message") if isinstance(error, dict) else str(error)
                     raise CodexNativeError(message or "Codex turn failed")
+                if final_text and on_text_delta:
+                    await on_text_delta(final_text)
                 break
 
         return CodexTurnResult(

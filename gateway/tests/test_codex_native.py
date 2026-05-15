@@ -24,6 +24,7 @@ def _fake_codex_bin(
     generic_message=False,
     large_delta=False,
     completion_message=False,
+    final_after_tool=False,
     argv_log_path=None,
 ):
     script = tmp_path / "fake-codex"
@@ -111,6 +112,14 @@ def _fake_codex_bin(
                     }}}})
                 elif {completion_message!r}:
                     pass
+                elif {final_after_tool!r}:
+                    send({{"method": "item/agentMessage/delta", "params": {{"delta": "Premature text"}}}})
+                    send({{"method": "item/started", "params": {{
+                        "item": {{"type": "commandExecution", "id": "cmd_fake", "command": "printf ok"}}
+                    }}}})
+                    send({{"method": "item/completed", "params": {{
+                        "item": {{"type": "commandExecution", "id": "cmd_fake", "command": "printf ok", "exitCode": 0}}
+                    }}}})
                 else:
                     send({{"method": "item/agentMessage/delta", "params": {{"delta": "Hello "}}}})
                     send({{"method": "item/completed", "params": {{
@@ -122,6 +131,8 @@ def _fake_codex_bin(
                 turn = {{"id": "turn_fake", "status": "completed"}}
                 if {completion_message!r}:
                     turn["lastAgentMessage"] = "Hello from completion"
+                if {final_after_tool!r}:
+                    turn["lastAgentMessage"] = "Actual final"
                 send({{"method": "turn/completed", "params": {{"turn": turn}}}})
             else:
                 send({{"id": mid, "result": {{}}}})
@@ -168,7 +179,7 @@ def test_app_server_streaming_turn_uses_chatgpt_auth(tmp_path, monkeypatch):
     assert result.thread_id == "thr_fake"
     assert result.turn_id == "turn_fake"
     assert result.text == "Hello Codex"
-    assert deltas == ["Hello ", "Codex"]
+    assert deltas == ["Hello Codex"]
     assert result.usage == {"input_tokens": 10, "output_tokens": 2}
     assert result.model == "gpt-5.5"
     assert "OPENAI_API_KEY" in os.environ
@@ -268,6 +279,37 @@ def test_app_server_streams_final_completion_message(tmp_path):
 
     assert result.text == "Hello from completion"
     assert deltas == ["Hello from completion"]
+
+
+def test_app_server_emits_final_text_after_tool_notifications(tmp_path):
+    fake = _fake_codex_bin(tmp_path, final_after_tool=True)
+    client = CodexAppServerClient(codex_bin=fake, cwd=tmp_path)
+    events = []
+
+    async def on_notification(msg):
+        events.append(("notification", msg.get("method")))
+
+    async def run():
+        try:
+            await client.connect()
+            thread_id = await client.start_or_resume_thread(None, cwd=tmp_path)
+            return await client.run_turn(
+                thread_id=thread_id,
+                prompt="Run then answer",
+                model="codex:gpt-5.5",
+                cwd=tmp_path,
+                on_notification=on_notification,
+                on_text_delta=lambda d: _append_async(events, ("text", d)),
+            )
+        finally:
+            await client.close()
+
+    result = asyncio.run(run())
+
+    assert result.text == "Actual final"
+    assert events[-1] == ("text", "Actual final")
+    assert events.index(("notification", "item/completed")) < len(events) - 1
+    assert ("text", "Premature text") not in events
 
 
 def test_app_server_reads_large_json_rpc_lines(tmp_path):
