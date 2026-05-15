@@ -410,6 +410,32 @@ describe('Chat integration tests', () => {
     expect(document.querySelectorAll('.chat-msg-assistant').length).toBe(1);
   });
 
+  test('keeps the latest realtime assistant streaming when status blocks follow it', async () => {
+    const { socket } = await renderChat();
+    const tabId = 'tab-assistant-before-cost';
+    await establishSession(socket, tabId, {
+      streaming: true,
+      realtimeBlocks: [
+        { type: 'user', id: 0, text: 'run tools', files: [] },
+        { type: 'assistant', id: 1, text: 'Working...' },
+        { type: 'cost', id: 2, total_cost_usd: 0.01 },
+      ],
+    });
+
+    const assistant = document.querySelector('.chat-msg-assistant') as HTMLElement;
+    expect(assistant).toHaveClass('chat-streaming-cursor');
+
+    await act(async () => {
+      socket.simulateEvent('realtime_block_update', {
+        id: 1,
+        patch: { text: 'Final answer after tools.' },
+        tab_id: tabId,
+      });
+    });
+
+    expect(document.querySelector('.chat-msg-assistant')?.textContent).toContain('Final answer after tools.');
+  });
+
   test('new chat fast finish keeps optimistic user block when realtime_done arrives quickly', async () => {
     const { socket } = await renderChat();
     const textarea = document.querySelector('.chat-input') as HTMLTextAreaElement;

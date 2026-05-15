@@ -1047,6 +1047,13 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
   // Group tool runs for collapsed display
   const groupedHistory = useMemo(() => groupBlocks(visibleHistory), [visibleHistory]);
   const groupedRealtime = useMemo(() => groupBlocks(visibleRealtime), [visibleRealtime]);
+  const latestRealtimeAssistantId = useMemo(() => {
+    for (let i = visibleRealtime.length - 1; i >= 0; i--) {
+      const block = visibleRealtime[i];
+      if (block.type === 'assistant') return block.id;
+    }
+    return null;
+  }, [visibleRealtime]);
 
   // Sessions sidebar: collapsible, persistent, resizable
   const [sessionsVisible, setSessionsVisible] = useState(() => {
@@ -1241,7 +1248,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
                     key={`r-${item.block.id}`}
                     block={item.block}
                     isStreaming={realtimeStatus === 'streaming'}
-                    isLast={idx === groupedRealtime.length - 1 && item.block.type === 'assistant'}
+                    isLast={item.block.type === 'assistant' && item.block.id === latestRealtimeAssistantId}
                   />
                 );
               })}
