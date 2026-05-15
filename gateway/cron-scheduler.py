@@ -1006,31 +1006,6 @@ class JobManager:
         ]
         return any(p.lower() in err for p in retryable_patterns)
 
-    # Zombie threshold: a session that ran longer than this but spent essentially
-    # no money is almost certainly stuck in a non-cancellable asyncio wait
-    # (e.g. ConnectionRefused inside the SDK, OS-level socket block) rather than
-    # doing real Claude work. Retrying burns another heartbeat slot for the same
-    # outcome. Regression: 2026-05-15 heartbeat ran 3000s with $0 cost while
-    # asyncio held a refused TCP connection through the hard-kill watchdog.
-    _ZOMBIE_DURATION_SECONDS = 600
-    _ZOMBIE_COST_USD = 0.01
-
-    def _is_zombie_failure(self, duration: float, cost: float) -> bool:
-        """A failed run is a zombie when it ran long but produced no Claude cost.
-
-        Returns True when ``duration`` exceeds ``_ZOMBIE_DURATION_SECONDS`` and
-        ``cost`` is below ``_ZOMBIE_COST_USD``. Both conditions must hold - a
-        long successful run logs cost, and a short failure (auth error, syntax)
-        is handled by the normal non-retryable path.
-        """
-        try:
-            return (
-                duration > self._ZOMBIE_DURATION_SECONDS
-                and (cost or 0.0) < self._ZOMBIE_COST_USD
-            )
-        except (TypeError, ValueError):
-            return False
-
     # Claude.ai error string when the subscription's usage window is exhausted.
     # Example: "You've hit your limit · resets 6pm (America/Los_Angeles)".
     _USAGE_LIMIT_RE = re.compile(
@@ -1637,23 +1612,6 @@ class JobManager:
                     "AUTH FAILED: Claude not logged in.\n"
                     "Fix: run in terminal:\n"
                     f"env -u CLAUDECODE CLAUDE_CONFIG_DIR={_cfg.claude_config_dir()} claude login",
-                    duration,
-                )
-                return
-
-            # Zombie failure: long wall-clock, near-zero cost. The session was
-            # blocked in a non-cancellable wait (asyncio socket, refused TCP)
-            # rather than doing real work, so retrying produces the same hang.
-            cost_usd = result.get("cost", 0.0) or 0.0
-            if self._is_zombie_failure(duration, cost_usd):
-                self.logger.warning(
-                    f"Job {job_id}: ZOMBIE detected (duration={duration:.0f}s, "
-                    f"cost=${cost_usd:.4f}), skipping retry. Error: {error_msg[:200]}"
-                )
-                self._send_failure_alert(
-                    job_id,
-                    f"Zombie session (no Claude work in {duration:.0f}s, "
-                    f"cost ${cost_usd:.4f}): {error_msg}",
                     duration,
                 )
                 return
