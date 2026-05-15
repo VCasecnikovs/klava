@@ -150,6 +150,26 @@ export function groupBlocks(blocks: Block[]): GroupedItem[] {
   return result;
 }
 
+function samePendingUserBlock(a: Block, b: Block): boolean {
+  return (
+    a.type === 'user' &&
+    b.type === 'user' &&
+    a.pending === true &&
+    b.pending === true &&
+    (a.text || '') === (b.text || '')
+  );
+}
+
+function mergeOptimisticPendingBlocks(incoming: Block[], current: Block[]): Block[] {
+  const optimistic = current.filter(block => (
+    block.type === 'user' &&
+    block.pending === true &&
+    block.id < 0 &&
+    !incoming.some(next => samePendingUserBlock(block, next))
+  ));
+  return optimistic.length > 0 ? [...incoming, ...optimistic] : incoming;
+}
+
 // --- ChatMain: Two-entity architecture (History + Realtime) ---
 
 // Sessions sidebar default width
@@ -174,6 +194,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
   stateRef.current = state;
   const historyBlocksRef = useRef<Block[]>(state.historyBlocks);
   const realtimeBlocksRef = useRef<Block[]>(state.realtimeBlocks);
+  const optimisticBlockIdRef = useRef(-1);
 
   useEffect(() => {
     historyBlocksRef.current = historyBlocks;
@@ -451,8 +472,9 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         };
         dispatch({ type: 'SET_TAB_ID', tabId: data.tab_id });
       }
-      realtimeBlocksRef.current = data.blocks;
-      dispatch({ type: 'REALTIME_SNAPSHOT', blocks: data.blocks });
+      const mergedBlocks = mergeOptimisticPendingBlocks(data.blocks, realtimeBlocksRef.current);
+      realtimeBlocksRef.current = mergedBlocks;
+      dispatch({ type: 'REALTIME_SNAPSHOT', blocks: mergedBlocks });
 
       // Track task tools from realtime blocks
       extractTaskTools(data.blocks, handleTaskToolUse);
@@ -508,7 +530,16 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         dispatch({ type: 'SET_SESSION_MODE', mode: data.block.active ? 'plan' : 'bypass' });
       }
 
-      if (!realtimeBlocksRef.current.some(b => b.id === data.block.id)) {
+      const optimisticIdx = realtimeBlocksRef.current.findIndex(b => samePendingUserBlock(b, data.block) && b.id < 0);
+      if (optimisticIdx !== -1) {
+        realtimeBlocksRef.current = realtimeBlocksRef.current.map((b, idx) => (
+          idx === optimisticIdx ? data.block : b
+        ));
+        dispatch({ type: 'REALTIME_SNAPSHOT', blocks: realtimeBlocksRef.current });
+        return;
+      }
+
+      if (!realtimeBlocksRef.current.some(b => b.id === data.block.id && b.type === data.block.type)) {
         realtimeBlocksRef.current = [...realtimeBlocksRef.current, data.block];
       }
       dispatch({ type: 'REALTIME_BLOCK_ADD', block: data.block });
@@ -816,10 +847,9 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     if (socketRef.current?.connected) {
       if (stateRef.current.realtimeStatus === 'streaming') {
         const currentBlocks = realtimeBlocksRef.current;
-        const nextId = currentBlocks.reduce((max, block) => Math.max(max, block.id), -1) + 1;
         const pendingBlock: Block = {
           type: 'user',
-          id: nextId,
+          id: optimisticBlockIdRef.current--,
           text,
           files: files.length > 0 ? files : undefined,
           pending: true,

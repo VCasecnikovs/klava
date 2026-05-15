@@ -462,6 +462,42 @@ describe('ChatInput - streaming state', () => {
     expect(document.querySelector('.chat-msg-pending')?.textContent).toContain('follow up message');
   });
 
+  test('queued optimistic message survives snapshots and is replaced by backend echo', async () => {
+    const { socket } = await renderChat();
+    const tabId = 'tab-queue-race';
+    await establishSession(socket, tabId, {
+      realtimeBlocks: [{ type: 'assistant', id: 0, text: 'still working' }],
+      streaming: true,
+    });
+
+    const textarea = document.querySelector('.chat-input') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'race follow up' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+    });
+
+    await act(async () => {
+      socket.simulateEvent('realtime_snapshot', {
+        blocks: [{ type: 'assistant', id: 0, text: 'still working' }],
+        streaming: true,
+        queue: [],
+        tab_id: tabId,
+      });
+    });
+    expect(document.querySelector('.chat-msg-pending')?.textContent).toContain('race follow up');
+
+    await act(async () => {
+      socket.simulateEvent('realtime_block_add', {
+        block: { type: 'user', id: 1, text: 'race follow up', files: [], pending: true },
+        tab_id: tabId,
+      });
+    });
+
+    const pendingMessages = Array.from(document.querySelectorAll('.chat-msg-pending'))
+      .filter(el => el.textContent?.includes('race follow up'));
+    expect(pendingMessages).toHaveLength(1);
+  });
+
   test('cancel button emits cancel event', async () => {
     const { socket } = await renderChat();
     const tabId = 'tab-cancel-emit';
