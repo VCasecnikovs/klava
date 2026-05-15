@@ -41,7 +41,10 @@ export function ThinkingBubble({ blocks }: ThinkingBubbleProps) {
         {expanded ? (
           <span>Thinking</span>
         ) : (
-          <span className="chat-thinking-bubble-pass-preview">{preview}</span>
+          <span
+            className="chat-thinking-bubble-pass-preview"
+            dangerouslySetInnerHTML={{ __html: renderChatMD(preview) }}
+          />
         )}
         <span className="chat-thinking-bubble-meta" style={{ marginLeft: 'auto' }}>
           {totalWords} words

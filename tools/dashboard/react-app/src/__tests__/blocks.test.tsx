@@ -248,6 +248,13 @@ describe('ThinkingBlock', () => {
     expect(container.innerHTML).toContain('Full text');
   });
 
+  test('renders markdown bold in collapsed preview', () => {
+    const block: Block = { type: 'thinking', id: 3, text: '**Bold** preview', words: 2, preview: '**Bold** preview' };
+    const { container } = render(<ThinkingBlock block={block} />);
+    expect(container.querySelector('.chat-thinking-preview strong')?.textContent).toBe('Bold');
+    expect(container.innerHTML).not.toContain('**Bold**');
+  });
+
   test('starts collapsed', () => {
     const block: Block = { type: 'thinking', id: 3, text: 'Hidden content', words: 2, preview: 'preview' };
     const { container } = render(<ThinkingBlock block={block} />);
@@ -324,6 +331,15 @@ describe('ThinkingBubble', () => {
     const { container } = render(<ThinkingBubble blocks={blocks} />);
     expect(container.querySelector('.chat-thinking-bubble-pass-preview')).toBeInTheDocument();
     expect(container.innerHTML).toContain('First sentence here.');
+  });
+
+  test('renders markdown bold in collapsed preview', () => {
+    const blocks: Block[] = [
+      { type: 'thinking', id: 10, text: '**Bold** sentence here.', words: 3 },
+    ];
+    const { container } = render(<ThinkingBubble blocks={blocks} />);
+    expect(container.querySelector('.chat-thinking-bubble-pass-preview strong')?.textContent).toBe('Bold');
+    expect(container.innerHTML).not.toContain('**Bold**');
   });
 
   test('expands to show passes on click', () => {
