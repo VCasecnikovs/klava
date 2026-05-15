@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Block } from '@/context/ChatContext';
 import { normalizeThinkingText } from './ThinkingBlock';
+import { renderChatMD } from '../ChatMarkdown';
 
 interface ThinkingBubbleProps {
   blocks: Block[];
@@ -60,9 +61,10 @@ export function ThinkingBubble({ blocks }: ThinkingBubbleProps) {
                     {words} words
                   </span>
                 </div>
-                <div className="chat-thinking-bubble-pass-content">
-                  {text}
-                </div>
+                <div
+                  className="chat-thinking-bubble-pass-content"
+                  dangerouslySetInnerHTML={{ __html: renderChatMD(text) }}
+                />
                 {idx < blocks.length - 1 && <div className="chat-thinking-bubble-sep" />}
               </div>
             );

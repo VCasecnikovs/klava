@@ -299,6 +299,7 @@ describe('ThinkingBlock', () => {
     expect(container.querySelector('.chat-thinking-content')?.textContent).toContain('Evaluating Type Imports');
     expect(container.querySelector('.chat-thinking-content')?.textContent).toContain("I'm checking the imports.");
     expect(container.querySelector('.chat-thinking-content')?.textContent).not.toContain('summary_text');
+    expect(container.querySelector('.chat-thinking-content strong')?.textContent).toBe('Evaluating Type Imports');
   });
 });
 

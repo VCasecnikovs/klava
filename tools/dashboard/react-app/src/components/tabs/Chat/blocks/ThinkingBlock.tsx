@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { esc } from '@/lib/utils';
 import type { Block } from '@/context/ChatContext';
+import { renderChatMD } from '../ChatMarkdown';
 
 function decodeEscapedReasoningText(text: string): string {
   return text
@@ -90,9 +91,8 @@ export function ThinkingBlock({ block }: { block: Block }) {
       <div
         className="chat-thinking-content"
         style={{ display: expanded ? 'block' : 'none' }}
-      >
-        {text}
-      </div>
+        dangerouslySetInnerHTML={{ __html: renderChatMD(text) }}
+      />
     </div>
   );
 }

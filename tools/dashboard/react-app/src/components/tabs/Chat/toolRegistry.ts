@@ -51,9 +51,17 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
   Grep: cfg('&#128269;', 'yellow', 'Search', 'grep', 'auto', 'read'),
   LSP: cfg('&#8984;', 'cyan', 'Code intel', 'inspect', 'auto', 'read'),
   Bash: cfg('&#9654;', 'orange', 'Shell', 'run', 'approval', 'exec'),
+  exec_command: cfg('&#9654;', 'orange', 'Shell', 'run', 'approval', 'exec'),
+  shell: cfg('&#9654;', 'orange', 'Shell', 'run', 'approval', 'exec'),
+  write_stdin: cfg('&#8629;', 'orange', 'Shell', 'write stdin', 'approval', 'exec'),
   PowerShell: cfg('PS', 'orange', 'Shell', 'run', 'approval', 'exec'),
   Monitor: cfg('&#128250;', 'orange', 'Shell', 'watch', 'approval', 'exec'),
   WebSearch: cfg('&#127760;', 'cyan', 'Web', 'search', 'approval', 'web'),
+  search_query: cfg('&#127760;', 'cyan', 'Web', 'search', 'approval', 'web'),
+  image_query: cfg('&#128247;', 'cyan', 'Web', 'image search', 'approval', 'web'),
+  open: cfg('&#128279;', 'teal', 'Web', 'open', 'approval', 'web'),
+  click: cfg('&#128433;', 'teal', 'Web', 'click', 'approval', 'web'),
+  find: cfg('&#128269;', 'teal', 'Web', 'find', 'approval', 'web'),
   WebFetch: cfg('&#128279;', 'teal', 'Web', 'fetch', 'approval', 'web'),
   Agent: cfg('&#129302;', 'violet', 'Agents', 'delegate', 'auto', 'agent'),
   Task: cfg('&#129302;', 'amber', 'Agents', 'delegate', 'auto', 'agent'),
@@ -85,6 +93,7 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
   CodeExecution: cfg('&#128013;', 'green', 'Execution', 'run code', 'approval', 'exec'),
   BashCodeExecution: cfg('&#9654;', 'green', 'Execution', 'run shell', 'approval', 'exec'),
   TextEditorCodeExecution: cfg('&#128221;', 'green', 'Execution', 'edit', 'approval', 'write'),
+  apply_patch: cfg('&#8596;', 'purple', 'Files', 'patch', 'approval', 'write'),
   _default: cfg('&#9881;', 'amber', 'Tool', 'call', 'mixed', 'system'),
 };
 
@@ -184,14 +193,19 @@ function renderPromptPreview(prompt: string, limit = 360): string {
 export function getToolSummary(tool: string, input: any): string {
   if (!input) return '';
   if (tool === 'Read' && input.file_path) return fileName(input.file_path);
-  if (tool === 'Bash' || tool === 'PowerShell' || tool === 'Monitor') return truncate(input.description || input.command || '', 80, false);
+  if (tool === 'Bash' || tool === 'exec_command' || tool === 'shell' || tool === 'PowerShell' || tool === 'Monitor') return truncate(input.description || input.command || input.cmd || '', 80, false);
+  if (tool === 'write_stdin') return input.chars ? truncate(input.chars, 80, false) : `session ${input.session_id || ''}`.trim();
   if (tool === 'Edit' && input.file_path) return fileName(input.file_path);
+  if ((tool === 'Edit' || tool === 'apply_patch') && input.patch) return 'apply patch';
   if (tool === 'NotebookEdit' && input.notebook_path) return `${fileName(input.notebook_path)} cell ${input.cell_number ?? ''}`.trim();
   if (tool === 'Grep' && input.pattern) return `/${input.pattern}/` + (input.path ? ' in ' + fileName(input.path) : '');
   if (tool === 'Write' && input.file_path) return fileName(input.file_path);
   if (tool === 'Glob' && input.pattern) return input.pattern;
   if (tool === 'LSP') return [input.operation, fileName(input.filePath || input.file_path)].filter(Boolean).join(' ');
-  if (tool === 'WebSearch' && input.query) return input.query;
+  if ((tool === 'WebSearch' || tool === 'search_query') && input.query) return input.query;
+  if (tool === 'search_query' && Array.isArray(input.search_query)) return input.search_query.map((q: { q?: string }) => q.q).filter(Boolean).join(', ');
+  if (tool === 'image_query' && Array.isArray(input.image_query)) return input.image_query.map((q: { q?: string }) => q.q).filter(Boolean).join(', ');
+  if ((tool === 'open' || tool === 'click' || tool === 'find') && input.open) return JSON.stringify(input.open);
   if (tool === 'WebFetch' && input.url) {
     try { return new URL(input.url).hostname; } catch { return truncate(input.url, 40); }
   }
@@ -233,7 +247,7 @@ export function getToolSummary(tool: string, input: any): string {
   if (tool === 'TeamDelete') return 'delete team';
   if (tool?.startsWith('mcp__')) return getMcpSummary(tool, input);
   if (tool?.startsWith('multi_tool_use.')) return Array.isArray(input.tool_uses) ? `${input.tool_uses.length} tool uses` : '';
-  return '';
+  return firstString(input, ['cmd', 'command', 'chars', 'query', 'q', 'url', 'ref_id', 'path', 'file_path', 'name', 'id', 'text', 'input', 'patch']) || '';
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -278,19 +292,24 @@ export function formatToolInput(toolName: string, input: any): string | null {
     case 'NotebookEdit':
       return `<div class="tool-file-path"><span style="opacity:0.6">&#9638;</span><span style="color:var(--text-muted)">${esc(dirname(input.notebook_path || ''))}</span><span style="color:var(--text)">${esc(fileName(input.notebook_path || ''))}</span><span class="tool-mini-stat">cell ${esc(String(input.cell_number ?? '?'))} · ${esc(input.edit_mode || 'replace')}</span></div>${renderPromptPreview(input.new_source || '', 500)}`;
     case 'Bash':
+    case 'exec_command':
+    case 'shell':
     case 'PowerShell':
     case 'Monitor':
     case 'BashCodeExecution': {
-      const cmd = input.command || input.code || '';
+      const cmd = input.command || input.cmd || input.code || '';
       const desc = input.description || '';
       let h = '';
       if (desc) h += `<div class="tool-human-desc">${esc(desc)}</div>`;
       h += `<div class="tool-bash-cmd"><span class="tool-bash-prompt">${toolName === 'PowerShell' ? 'PS>' : '$'}</span><span>${esc(cmd)}</span></div>`;
+      if (input.workdir || input.cwd) h += `<div class="tool-muted small">${esc(input.workdir || input.cwd)}</div>`;
       if (input.timeout || input.run_in_background || input.dangerouslyDisableSandbox) {
         h += `<div class="tool-chip-row">${input.timeout ? renderChip(`${input.timeout}ms`, 'neutral') : ''}${input.run_in_background ? renderChip('background', 'good') : ''}${input.dangerouslyDisableSandbox ? renderChip('unsandboxed', 'danger') : ''}</div>`;
       }
       return h;
     }
+    case 'write_stdin':
+      return `<div class="tool-bash-cmd"><span class="tool-bash-prompt">stdin</span><span>${esc(input.chars || '')}</span></div>${renderGenericPanel(input, ['session_id', 'yield_time_ms', 'max_output_tokens'])}`;
     case 'Grep': {
       let h = `<div class="tool-search-panel"><span class="tool-search-pattern">/${esc(input.pattern || '')}/</span>`;
       if (input.path) h += ` <span class="tool-muted">in</span> <span>${esc(input.path)}</span>`;
@@ -304,7 +323,14 @@ export function formatToolInput(toolName: string, input: any): string | null {
     case 'LSP':
       return renderGenericPanel(input, ['operation', 'filePath', 'line', 'character']);
     case 'WebSearch':
+    case 'search_query':
       return `<div class="tool-query-card"><span class="tool-quote-mark">search</span><span>${esc(input.query || '')}</span></div>`;
+    case 'image_query':
+      return `<div class="tool-query-card"><span class="tool-quote-mark">image</span><span>${esc(JSON.stringify(input.image_query || input.query || input.q || ''))}</span></div>`;
+    case 'open':
+    case 'click':
+    case 'find':
+      return renderGenericPanel(input, ['open', 'click', 'find', 'ref_id', 'id', 'pattern', 'url']);
     case 'ToolSearch':
     case 'ToolSearchRegex':
     case 'ToolSearchBM25':
@@ -369,6 +395,8 @@ export function formatToolInput(toolName: string, input: any): string | null {
       return renderQuestionsHtml(Array.isArray(input.questions) ? input.questions : []);
     case 'Skill':
       return `<div class="tool-query-card"><span class="tool-quote-mark">skill</span><span style="color:#e879f9">/${esc(input.skill || '')}</span>${input.args ? `<code>${esc(input.args)}</code>` : ''}</div>`;
+    case 'apply_patch':
+      return `<pre class="tool-code-preview tall">${esc(input.patch || input.input || JSON.stringify(input, null, 2))}</pre>`;
     case 'CronCreate':
     case 'CronDelete':
     case 'CronList':
@@ -387,7 +415,7 @@ export function formatToolInput(toolName: string, input: any): string | null {
     default:
       if (toolName?.startsWith('mcp__')) return renderMcpInput(toolName, input);
       if (toolName?.startsWith('multi_tool_use.')) return renderGenericPanel(input, ['tool_uses']);
-      return null;
+      return renderGenericPanel(input);
   }
 }
 

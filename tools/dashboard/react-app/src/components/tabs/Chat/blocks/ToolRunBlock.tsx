@@ -78,7 +78,7 @@ function describeTools(counts: Record<string, number>): string {
 function ToolItemRow({ item }: { item: ToolItem }) {
   const toolName = item.use.tool || 'Unknown';
   const config = getToolConfig(toolName);
-  const summary = getToolSummary(toolName, item.use.input);
+  const summary = getToolSummary(toolName, item.use.input) || toolName;
   const duration = formatDuration(item.use.duration_ms);
   const preview = getResultPreview(item);
   const isRunning = item.use.running;
