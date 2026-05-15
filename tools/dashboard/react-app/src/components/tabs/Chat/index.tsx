@@ -216,6 +216,10 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
 
   const currentSessionHasExplicitSettingsRef = useRef(false);
 
+  const nextOptimisticUserBlockId = useCallback(() => (
+    historyBlocksRef.current.length + realtimeBlocksRef.current.length
+  ), []);
+
   const getSavedSessionSettings = useCallback((...ids: Array<string | null | undefined>) => {
     try {
       const map = JSON.parse(localStorage.getItem('chat_session_settings') || '{}');
@@ -572,10 +576,21 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
         }
       }
 
-      realtimeBlocksRef.current = realtimeBlocksRef.current.map(b => (
-        b.id === data.id ? { ...b, ...data.patch } : b
-      ));
-      dispatch({ type: 'REALTIME_BLOCK_UPDATE', id: data.id, patch: data.patch });
+      const realtimeHasBlock = realtimeBlocksRef.current.some(b => b.id === data.id);
+      if (realtimeHasBlock) {
+        realtimeBlocksRef.current = realtimeBlocksRef.current.map(b => (
+          b.id === data.id ? { ...b, ...data.patch } : b
+        ));
+        dispatch({ type: 'REALTIME_BLOCK_UPDATE', id: data.id, patch: data.patch });
+        return;
+      }
+
+      if (historyBlocksRef.current.some(b => b.id === data.id)) {
+        historyBlocksRef.current = historyBlocksRef.current.map(b => (
+          b.id === data.id ? { ...b, ...data.patch } : b
+        ));
+        dispatch({ type: 'HISTORY_BLOCK_UPDATE', id: data.id, patch: data.patch });
+      }
     };
 
     const onRealtimeDone = (data: { has_next: boolean; tab_id: string }) => {
@@ -766,8 +781,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     dispatch({ type: 'SET_REALTIME_STATUS', status: 'streaming' });
     dispatch({ type: 'SET_STREAM_START', time: Date.now() });
 
-    // Optimistic user block at id 0 (realtime always starts fresh)
-    const userBlock: Block = { type: 'user', id: 0, text, files: files.length > 0 ? files : undefined };
+    const userBlock: Block = { type: 'user', id: nextOptimisticUserBlockId(), text, files: files.length > 0 ? files : undefined };
     realtimeBlocksRef.current = [userBlock];
     dispatch({ type: 'REALTIME_BLOCK_ADD', block: userBlock });
 
@@ -782,7 +796,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     if (files.length > 0) payload.files = files.map(f => ({ name: f.name, path: f.path, type: f.type }));
     console.log('[chatStartStream] emitting send_message, socket.connected:', socketRef.current?.connected, 'payload tab_id:', payload.tab_id);
     socketRef.current?.emit('send_message', payload);
-  }, [chatStopWatching, dispatch, socketRef, model, effort, sessionMode]);
+  }, [chatStopWatching, dispatch, socketRef, model, effort, sessionMode, nextOptimisticUserBlockId]);
 
   // --- HTTP fallback for when Socket.IO is unavailable (e.g. mobile/Tailscale) ---
   const httpSend = useCallback((text: string, files: AttachedFile[]) => {
@@ -816,7 +830,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     }
 
     dispatch({ type: 'SET_REALTIME_STATUS', status: 'streaming' });
-    const userBlock: Block = { type: 'user', id: 0, text, files: files.length > 0 ? files : undefined };
+    const userBlock: Block = { type: 'user', id: nextOptimisticUserBlockId(), text, files: files.length > 0 ? files : undefined };
     realtimeBlocksRef.current = [userBlock];
     dispatch({ type: 'REALTIME_BLOCK_ADD', block: userBlock });
 
@@ -837,7 +851,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
       dispatch({ type: 'REALTIME_BLOCK_ADD', block: { type: 'error', id: 1, message: `HTTP send failed: ${err.message}` } });
       dispatch({ type: 'SET_REALTIME_STATUS', status: 'idle' });
     });
-  }, [dispatch, model, effort]);
+  }, [dispatch, model, effort, nextOptimisticUserBlockId]);
 
   // --- Public actions ---
   const handleSend = useCallback((text: string, files: AttachedFile[]): boolean => {
@@ -1272,7 +1286,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
                 if (item.type === 'plan_review') return <PlanReviewBlock key={`hp-${idx}`} assistantBlock={item.assistantBlock} planBlock={item.planBlock} />;
                 return (
                   <BlockRenderer
-                    key={`h-${item.block.id}`}
+                    key={`h-${idx}-${item.block.id}-${item.block.type}`}
                     block={item.block}
                     isStreaming={false}
                     isLast={false}
@@ -1287,7 +1301,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
                 if (item.type === 'plan_review') return <PlanReviewBlock key={`rp-${idx}`} assistantBlock={item.assistantBlock} planBlock={item.planBlock} />;
                 return (
                   <BlockRenderer
-                    key={`r-${item.block.id}`}
+                    key={`r-${idx}-${item.block.id}-${item.block.type}`}
                     block={item.block}
                     isStreaming={realtimeStatus === 'streaming'}
                     isLast={item.block.type === 'assistant' && item.block.id === latestRealtimeAssistantId}

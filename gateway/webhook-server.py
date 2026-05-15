@@ -925,7 +925,8 @@ class ChatNamespace(Namespace):
                                 sess["session_idle"] = False
                                 app.logger.info(f"Woke persistent session for tab {tab_id[:12]}")
                                 routed = True
-                                sess.setdefault("blocks", []).append({"type": "user", "id": 0, "text": prompt, "files": []})
+                                blocks = sess.setdefault("blocks", [])
+                                blocks.append({"type": "user", "id": len(blocks), "text": prompt, "files": []})
                             except RuntimeError:
                                 app.logger.warning(f"SDK loop closed for tab {tab_id[:12]}, starting new session")
                     else:

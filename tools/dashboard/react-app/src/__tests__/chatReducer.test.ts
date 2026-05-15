@@ -251,6 +251,27 @@ describe('history blocks', () => {
     const result = chatReducer(state, { type: 'HISTORY_BLOCK_ADD', block: block1 });
     expect(result).toBe(state);
   });
+
+  it('HISTORY_BLOCK_ADD allows same numeric id with a different block type', () => {
+    const state = makeState({ historyBlocks: [block1] });
+    const assistantSameId: Block = { type: 'assistant', id: block1.id, text: 'same id, different type' };
+    const result = chatReducer(state, { type: 'HISTORY_BLOCK_ADD', block: assistantSameId });
+    expect(result.historyBlocks).toHaveLength(2);
+    expect(result.historyBlocks[1]).toEqual(assistantSameId);
+  });
+
+  it('HISTORY_BLOCK_UPDATE patches blocks already frozen from realtime', () => {
+    const state = makeState({ historyBlocks: [block1, block2], realtimeBlocks: [] });
+    const result = chatReducer(state, { type: 'HISTORY_BLOCK_UPDATE', id: 2, patch: { text: 'late final text' } });
+    expect(result.historyBlocks[1].text).toBe('late final text');
+    expect(result.historyBlocks[0].text).toBe('hello');
+  });
+
+  it('HISTORY_BLOCK_UPDATE returns same state if id not found', () => {
+    const state = makeState({ historyBlocks: [block1] });
+    const result = chatReducer(state, { type: 'HISTORY_BLOCK_UPDATE', id: 999, patch: { text: 'x' } });
+    expect(result).toBe(state);
+  });
 });
 
 describe('realtime blocks', () => {
@@ -273,6 +294,14 @@ describe('realtime blocks', () => {
     const state = makeState({ realtimeBlocks: [block1] });
     const result = chatReducer(state, { type: 'REALTIME_BLOCK_ADD', block: block1 });
     expect(result).toBe(state);
+  });
+
+  it('REALTIME_BLOCK_ADD allows same numeric id with a different block type', () => {
+    const state = makeState({ realtimeBlocks: [block1] });
+    const assistantSameId: Block = { type: 'assistant', id: block1.id, text: 'same id, different type' };
+    const result = chatReducer(state, { type: 'REALTIME_BLOCK_ADD', block: assistantSameId });
+    expect(result.realtimeBlocks).toHaveLength(2);
+    expect(result.realtimeBlocks[1]).toEqual(assistantSameId);
   });
 
   it('REALTIME_BLOCK_UPDATE patches an existing block by id', () => {

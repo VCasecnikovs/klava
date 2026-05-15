@@ -195,6 +195,7 @@ export type ChatAction =
   // Two-entity chat architecture
   | { type: 'HISTORY_SNAPSHOT'; blocks: Block[] }
   | { type: 'HISTORY_BLOCK_ADD'; block: Block }
+  | { type: 'HISTORY_BLOCK_UPDATE'; id: number; patch: Partial<Block> }
   | { type: 'REALTIME_SNAPSHOT'; blocks: Block[] }
   | { type: 'REALTIME_BLOCK_ADD'; block: Block }
   | { type: 'REALTIME_BLOCK_UPDATE'; id: number; patch: Partial<Block> }
@@ -402,13 +403,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'HISTORY_SNAPSHOT':
       return { ...state, historyBlocks: action.blocks };
     case 'HISTORY_BLOCK_ADD': {
-      if (state.historyBlocks.some(b => b.id === action.block.id)) return state;
+      if (state.historyBlocks.some(b => b.id === action.block.id && b.type === action.block.type)) return state;
       return { ...state, historyBlocks: [...state.historyBlocks, action.block] };
+    }
+    case 'HISTORY_BLOCK_UPDATE': {
+      const idx = state.historyBlocks.findIndex(b => b.id === action.id);
+      if (idx === -1) return state;
+      const updated = { ...state.historyBlocks[idx], ...action.patch };
+      const newBlocks = [...state.historyBlocks];
+      newBlocks[idx] = updated;
+      return { ...state, historyBlocks: newBlocks };
     }
     case 'REALTIME_SNAPSHOT':
       return { ...state, realtimeBlocks: action.blocks };
     case 'REALTIME_BLOCK_ADD': {
-      if (state.realtimeBlocks.some(b => b.id === action.block.id)) return state;
+      if (state.realtimeBlocks.some(b => b.id === action.block.id && b.type === action.block.type)) return state;
       return { ...state, realtimeBlocks: [...state.realtimeBlocks, action.block] };
     }
     case 'REALTIME_BLOCK_UPDATE': {
