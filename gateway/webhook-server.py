@@ -4092,7 +4092,8 @@ def api_chat_context_usage():
     """Live context-window usage for a chat tab, via SDK get_context_usage().
 
     Returns: { ok, tab_id, tokens, total, percent, limit, model, tools_count, ... }
-    Falls back to 404 if the tab has no active SDK client.
+    Returns ok=false when the tab/provider cannot report live usage. This keeps
+    the dashboard console clean for native Codex and inactive history tabs.
     """
     tab_id = request.args.get("tab_id", "").strip()
     if not tab_id:
@@ -4101,12 +4102,21 @@ def api_chat_context_usage():
     with _chat_lock:
         sess = CHAT_SESSIONS.get(tab_id)
         if not sess:
-            return jsonify({"error": "tab not found"}), 404
+            return jsonify({"ok": False, "tab_id": tab_id, "unavailable": True, "reason": "tab not active"})
         client = sess.get("sdk_client")
         loop = sess.get("sdk_loop")
 
     if client is None or loop is None:
-        return jsonify({"error": "no active SDK client for tab"}), 404
+        return jsonify({"ok": False, "tab_id": tab_id, "unavailable": True, "reason": "no active SDK client"})
+    if not hasattr(client, "get_context_usage"):
+        provider = sess.get("provider") if isinstance(sess, dict) else None
+        return jsonify({
+            "ok": False,
+            "tab_id": tab_id,
+            "unavailable": True,
+            "reason": "context usage unavailable for provider",
+            "provider": provider or "unknown",
+        })
 
     try:
         fut = asyncio.run_coroutine_threadsafe(client.get_context_usage(), loop)

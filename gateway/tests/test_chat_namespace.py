@@ -1189,6 +1189,27 @@ class TestLastInputTokens:
                 flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
 
 
+class TestChatContextUsage:
+    def test_codex_native_session_returns_unavailable_payload(self, flask_app_module, client):
+        tab_id = "tab-codex-context"
+        flask_app_module.CHAT_SESSIONS[tab_id] = {
+            "sdk_client": "codex-native",
+            "sdk_loop": object(),
+            "provider": "codex_native",
+        }
+        try:
+            resp = client.get(f"/api/chat/context-usage?tab_id={tab_id}")
+        finally:
+            flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["unavailable"] is True
+        assert data["reason"] == "context usage unavailable for provider"
+        assert data["provider"] == "codex_native"
+
+
 # ── on_queue_remove ─────────────────────────────────────────────────
 
 
