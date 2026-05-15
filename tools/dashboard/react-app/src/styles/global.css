@@ -1969,6 +1969,10 @@ body {
 
 /* Parallel tool group */
 .chat-tool-group {
+    align-self: flex-start;
+    width: min(720px, 92%);
+    max-width: 92%;
+    box-sizing: border-box;
     display: flex; flex-direction: column; gap: 6px;
     border-left: 1px solid rgba(255,255,255,0.08);
     padding-left: 10px; margin: 6px 0;
@@ -2604,7 +2608,9 @@ body {
 /* Thinking block - collapsed by default, smooth expand */
 .chat-thinking {
     align-self: flex-start;
-    max-width: 80%;
+    width: min(720px, 92%);
+    max-width: 92%;
+    box-sizing: border-box;
     border: 1px solid rgba(168,85,247,0.25);
     border-radius: var(--radius-xs);
     font-size: 12px;
@@ -3684,7 +3690,9 @@ body {
 /* ---- Thinking Bubble (merged thinking passes) ---- */
 .chat-thinking-bubble {
     align-self: flex-start;
-    max-width: 80%;
+    width: min(720px, 92%);
+    max-width: 92%;
+    box-sizing: border-box;
     border: 1px solid rgba(168,85,247,0.25);
     border-radius: var(--radius-xs);
     font-size: 12px;
@@ -6846,7 +6854,9 @@ mark.da-mark-note { background: rgba(113,113,122,0.3); border-bottom: 3px solid 
    ================================================================ */
 .chat-tool-run {
     align-self: flex-start;
-    max-width: 80%;
+    width: min(720px, 92%);
+    max-width: 92%;
+    box-sizing: border-box;
     border: 1px solid rgba(96,165,250,0.25);
     border-radius: var(--radius-xs);
     font-size: 12px;
@@ -6874,6 +6884,10 @@ mark.da-mark-note { background: rgba(113,113,122,0.3); border-bottom: 3px solid 
 .chat-tool-run-desc {
     color: var(--text-muted);
     font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 .chat-tool-run-duration {
     font-size: 10px;

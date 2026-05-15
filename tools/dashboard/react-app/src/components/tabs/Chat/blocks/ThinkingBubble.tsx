@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Block } from '@/context/ChatContext';
+import { normalizeThinkingText } from './ThinkingBlock';
 
 interface ThinkingBubbleProps {
   blocks: Block[];
@@ -7,7 +8,7 @@ interface ThinkingBubbleProps {
 
 function getFirstSentence(blocks: Block[]): string {
   for (const b of blocks) {
-    const text = b.text || '';
+    const text = normalizeThinkingText(b.text);
     if (!text) continue;
     const dotIdx = text.indexOf('.');
     if (dotIdx > 0 && dotIdx < 80) return text.substring(0, dotIdx + 1);
@@ -19,7 +20,14 @@ function getFirstSentence(blocks: Block[]): string {
 export function ThinkingBubble({ blocks }: ThinkingBubbleProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const totalWords = blocks.reduce((sum, b) => sum + (b.words || 0), 0);
+  const normalizedBlocks = blocks.map(block => ({
+    block,
+    text: normalizeThinkingText(block.text),
+  }));
+  const totalWords = normalizedBlocks.reduce(
+    (sum, item) => sum + (item.block.words || (item.text ? item.text.split(/\s+/).filter(Boolean).length : 0)),
+    0
+  );
   const preview = getFirstSentence(blocks);
 
   return (
@@ -40,8 +48,8 @@ export function ThinkingBubble({ blocks }: ThinkingBubbleProps) {
       </div>
       {expanded && (
         <div className="chat-thinking-bubble-body">
-          {blocks.map((block, idx) => {
-            const words = block.words || 0;
+          {normalizedBlocks.map(({ block, text }, idx) => {
+            const words = block.words || (text ? text.split(/\s+/).filter(Boolean).length : 0);
             return (
               <div key={block.id} className="chat-thinking-bubble-pass">
                 <div className="chat-thinking-bubble-pass-header" style={{ cursor: 'default' }}>
@@ -53,7 +61,7 @@ export function ThinkingBubble({ blocks }: ThinkingBubbleProps) {
                   </span>
                 </div>
                 <div className="chat-thinking-bubble-pass-content">
-                  {block.text || ''}
+                  {text}
                 </div>
                 {idx < blocks.length - 1 && <div className="chat-thinking-bubble-sep" />}
               </div>

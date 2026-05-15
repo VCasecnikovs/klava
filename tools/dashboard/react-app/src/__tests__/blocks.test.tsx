@@ -287,6 +287,19 @@ describe('ThinkingBlock', () => {
     const { container } = render(<ThinkingBlock block={block} />);
     expect(container.innerHTML).toContain('...');
   });
+
+  test('normalizes native Codex reasoning chunk objects', () => {
+    const block: Block = {
+      type: 'thinking',
+      id: 3,
+      text: "{'type': 'summary_text', 'text': '**Evaluating Type Imports**\\n\\nI\\'m checking the imports.'}",
+    };
+    const { container } = render(<ThinkingBlock block={block} />);
+    fireEvent.click(container.querySelector('.chat-thinking-header')!);
+    expect(container.querySelector('.chat-thinking-content')?.textContent).toContain('Evaluating Type Imports');
+    expect(container.querySelector('.chat-thinking-content')?.textContent).toContain("I'm checking the imports.");
+    expect(container.querySelector('.chat-thinking-content')?.textContent).not.toContain('summary_text');
+  });
 });
 
 // =====================
@@ -361,6 +374,21 @@ describe('ThinkingBubble', () => {
     const { container } = render(<ThinkingBubble blocks={[]} />);
     expect(container.querySelector('.chat-thinking-bubble')).toBeInTheDocument();
     expect(container.innerHTML).toContain('0 words');
+  });
+
+  test('normalizes native Codex reasoning chunks inside merged bubble', () => {
+    const blocks: Block[] = [
+      {
+        type: 'thinking',
+        id: 10,
+        text: '{"type":"summary_text","text":"First normalized pass.\\nSecond line."}',
+      },
+    ];
+    const { container } = render(<ThinkingBubble blocks={blocks} />);
+    expect(container.querySelector('.chat-thinking-bubble-pass-preview')?.textContent).toContain('First normalized pass.');
+    fireEvent.click(container.querySelector('.chat-thinking-bubble-header')!);
+    expect(container.querySelector('.chat-thinking-bubble-pass-content')?.textContent).toContain('Second line.');
+    expect(container.querySelector('.chat-thinking-bubble-pass-content')?.textContent).not.toContain('summary_text');
   });
 });
 
