@@ -122,18 +122,18 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.drafts[draftKey]]);
 
-  // Debounced save to server
+  // Debounced save to server. Keep keystrokes local: dispatching SET_DRAFT on
+  // every input invalidates the whole Chat context and makes huge sessions lag.
   const saveDraft = useCallback((text: string, key?: string) => {
     const k = key || draftKeyRef.current;
     if (!k) return;
     if (text) justSentDraftKeyRef.current = null;
-    dispatch({ type: 'SET_DRAFT', sessionId: k, text });
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       localDirtyRef.current = false;
       socketRef.current?.emit('draft_save', { session_id: k, text });
     }, 500);
-  }, [dispatch, socketRef]);
+  }, [socketRef]);
 
   // --- Skill autocomplete ---
   const [skills, setSkills] = useState<Skill[]>([]);

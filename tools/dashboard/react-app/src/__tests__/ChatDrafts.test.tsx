@@ -2,9 +2,12 @@
  * Focused regression tests for Chat draft persistence.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useEffect } from 'react';
 import { render, act, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatPanel } from '@/components/tabs/Chat/index';
+import { ChatInput } from '@/components/tabs/Chat/ChatInput';
+import { ChatProvider, useChatContext } from '@/context/ChatContext';
 import { MockSocket } from '@/__mocks__/socket.io-client';
 
 vi.mock('socket.io-client', () => import('@/__mocks__/socket.io-client'));
@@ -121,5 +124,49 @@ describe('Chat draft persistence', () => {
 
     await act(async () => { fireEvent.click(sessionAItem); });
     expect(textarea.value).toBe('unsent session A draft');
+  });
+
+  test('typing a draft does not rerender unrelated chat context consumers', async () => {
+    let probeRenders = 0;
+    let latestTabId: string | null = null;
+
+    function SeedSession() {
+      const { dispatch } = useChatContext();
+      useEffect(() => {
+        dispatch({ type: 'SET_TAB_ID', tabId: 'draft-perf-tab' });
+      }, [dispatch]);
+      return null;
+    }
+
+    function RenderProbe() {
+      const { state } = useChatContext();
+      latestTabId = state.tabId;
+      probeRenders += 1;
+      return null;
+    }
+
+    await act(async () => {
+      renderWithProviders(
+        <ChatProvider>
+          <SeedSession />
+          <RenderProbe />
+          <ChatInput onSend={() => true} onCancel={() => {}} />
+        </ChatProvider>
+      );
+    });
+
+    await waitFor(() => {
+      expect(latestTabId).toBe('draft-perf-tab');
+    });
+
+    const textarea = document.querySelector('.chat-input') as HTMLTextAreaElement;
+    const rendersBeforeTyping = probeRenders;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'draft keystroke stays local' } });
+    });
+
+    expect(textarea.value).toBe('draft keystroke stays local');
+    expect(probeRenders).toBe(rendersBeforeTyping);
   });
 });
