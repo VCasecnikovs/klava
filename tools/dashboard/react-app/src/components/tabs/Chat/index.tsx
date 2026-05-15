@@ -4,6 +4,7 @@ import {
   useChatContext,
   type AttachedFile,
   type Block,
+  normalizeChatModel,
 } from '@/context/ChatContext';
 import { api } from '@/api/client';
 import { uuid } from './uuid';
@@ -207,7 +208,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
   const restoreSessionSettings = useCallback((...ids: Array<string | null | undefined>) => {
     const saved = getSavedSessionSettings(...ids);
     currentSessionHasExplicitSettingsRef.current = Boolean(saved);
-    dispatch({ type: 'RESTORE_MODEL', model: saved?.model || 'opus' });
+    dispatch({ type: 'RESTORE_MODEL', model: normalizeChatModel(saved?.model) });
     dispatch({ type: 'RESTORE_EFFORT', effort: saved?.effort || 'high' });
     return saved;
   }, [dispatch, getSavedSessionSettings]);
@@ -380,6 +381,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
           'claude-sonnet-4-6-20260301': 'sonnet',
           'claude-haiku-4-5': 'haiku',
           'claude-haiku-4-5-20251001': 'haiku',
+          'gpt-5.5': 'codex:gpt-5.5',
+          'codex:gpt-5.5': 'codex:gpt-5.5',
         };
         const uiModel = modelMap[data.model] || (data.model.includes('opus') ? 'opus' : data.model.includes('sonnet') ? 'sonnet' : data.model.includes('haiku') ? 'haiku' : null);
         if (uiModel) dispatch({ type: 'RESTORE_MODEL', model: uiModel });
@@ -875,7 +878,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     dispatch({ type: 'RESET_ARTIFACTS' });
     dispatch({ type: 'SET_PERMISSION_MODE', mode: 'ask' });
     // Reset to global defaults for new session
-    dispatch({ type: 'RESTORE_MODEL', model: localStorage.getItem('chat_model') || 'opus' });
+    dispatch({ type: 'RESTORE_MODEL', model: normalizeChatModel(localStorage.getItem('chat_model')) });
     dispatch({ type: 'RESTORE_EFFORT', effort: localStorage.getItem('chat_effort') || 'high' });
   }, [chatStopWatching, socketRef, dispatch]);
 

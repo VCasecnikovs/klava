@@ -46,6 +46,13 @@ export interface ActiveEntry {
   session_id: string | null;
 }
 
+export function normalizeChatModel(model: string | null | undefined): string {
+  if (!model) return 'opus';
+  const normalized = model.trim();
+  if (normalized === 'gpt-5.5') return 'codex:gpt-5.5';
+  return normalized;
+}
+
 // Block type used by both backend and React rendering
 export interface Block {
   type: string;
@@ -418,21 +425,22 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, realtimeStatus: action.status };
     case 'SET_MODEL': {
       const sid = state.claudeSessionId || state.tabId;
+      const model = normalizeChatModel(action.model);
       if (sid) {
         // Active session: save per-session only, don't pollute global default
         try {
           const map = JSON.parse(localStorage.getItem('chat_session_settings') || '{}');
-          map[sid] = { ...(map[sid] || {}), model: action.model };
+          map[sid] = { ...(map[sid] || {}), model };
           localStorage.setItem('chat_session_settings', JSON.stringify(map));
         } catch {}
       } else {
         // Welcome screen (no session): update global default
-        localStorage.setItem('chat_model', action.model);
+        localStorage.setItem('chat_model', model);
       }
-      return { ...state, model: action.model };
+      return { ...state, model };
     }
     case 'RESTORE_MODEL':
-      return { ...state, model: action.model };
+      return { ...state, model: normalizeChatModel(action.model) };
     case 'SET_EFFORT': {
       const sid = state.claudeSessionId || state.tabId;
       if (sid) {
@@ -531,7 +539,7 @@ export const INITIAL_STATE: ChatState = {
   historyBlocks: [],
   realtimeBlocks: [],
   realtimeStatus: 'idle',
-  model: localStorage.getItem('chat_model') || 'opus',
+  model: normalizeChatModel(localStorage.getItem('chat_model')),
   effort: localStorage.getItem('chat_effort') || 'high',
   pendingPermission: null,
   pendingComms: null,

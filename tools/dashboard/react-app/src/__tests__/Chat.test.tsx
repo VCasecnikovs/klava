@@ -532,6 +532,47 @@ describe('Chat integration tests', () => {
     expect((document.querySelector('select[title="Model"]') as HTMLSelectElement).value).toBe('opus[1m]');
   });
 
+  test('resuming Codex-native GPT-5.5 history restores GPT-5.5 model selector', async () => {
+    const { socket } = await renderChat();
+    const sessionId = 'session-with-gpt55';
+
+    await act(async () => {
+      socket.simulateEvent('chat_state_sync', {
+        active_sessions: [{ tab_id: null, session_id: sessionId }],
+        session_names: { [sessionId]: 'GPT Session' },
+        streaming_sessions: [],
+        unread_sessions: [],
+      });
+    });
+
+    const item = Array.from(document.querySelectorAll('.chat-sidebar-item'))
+      .find(el => el.textContent?.includes('GPT Session')) as HTMLElement;
+    await act(async () => { fireEvent.click(item); });
+
+    await act(async () => {
+      socket.simulateEvent('history_snapshot', {
+        blocks: [{ type: 'assistant', id: 0, text: 'saved gpt session' }],
+        session_id: sessionId,
+        model: 'gpt-5.5',
+      });
+    });
+
+    expect((document.querySelector('select[title="Model"]') as HTMLSelectElement).value).toBe('codex:gpt-5.5');
+
+    const textarea = document.querySelector('.chat-input') as HTMLTextAreaElement;
+    const sendButton = document.querySelector('.chat-send') as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'continue this session' } });
+      fireEvent.click(sendButton);
+    });
+
+    const sendEvent = MockSocket.emitted.find(e => e.event === 'send_message');
+    expect(sendEvent?.args[0]).toMatchObject({
+      resume_session_id: sessionId,
+      model: 'codex:gpt-5.5',
+    });
+  });
+
 
   // ---- Test 8: input clears after send even on stale draft_sync ----
   test('input draft clears after send even when chat_state_sync has stale draft', async () => {

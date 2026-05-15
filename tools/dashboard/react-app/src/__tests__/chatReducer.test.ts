@@ -708,10 +708,25 @@ describe('SET_MODEL localStorage', () => {
     expect(localStorage.getItem('chat_model')).toBe('opus');
   });
 
+  it('normalizes legacy GPT-5.5 model to the Codex-native selector value', () => {
+    const state = makeState({ claudeSessionId: 'sess-1', model: 'opus' });
+    const result = chatReducer(state, { type: 'SET_MODEL', model: 'gpt-5.5' });
+    const stored = JSON.parse(localStorage.getItem('chat_session_settings') || '{}');
+    expect(result.model).toBe('codex:gpt-5.5');
+    expect(stored['sess-1'].model).toBe('codex:gpt-5.5');
+  });
+
   it('RESTORE_MODEL updates UI state without saving a per-session setting', () => {
     const state = makeState({ claudeSessionId: 'sess-1', model: 'opus' });
     const result = chatReducer(state, { type: 'RESTORE_MODEL', model: 'sonnet' });
     expect(result.model).toBe('sonnet');
+    expect(localStorage.getItem('chat_session_settings')).toBeNull();
+  });
+
+  it('RESTORE_MODEL normalizes legacy GPT-5.5 without saving settings', () => {
+    const state = makeState({ claudeSessionId: 'sess-1', model: 'opus' });
+    const result = chatReducer(state, { type: 'RESTORE_MODEL', model: 'gpt-5.5' });
+    expect(result.model).toBe('codex:gpt-5.5');
     expect(localStorage.getItem('chat_session_settings')).toBeNull();
   });
 
