@@ -5,14 +5,22 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 191
-- Items fixed (30d): 104
+- Items added (30d): 192
+- Items fixed (30d): 105
 - Avg days open: 0
-- Last run: 2026-05-14 (17:45 UTC)
+- Last run: 2026-05-15 (08:35 UTC)
 
 ---
 
 ## Items
+
+### [2026-05-15] heartbeat max_turns 40→50 - turns=41 failures 5x/day
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Heartbeat hitting max_turns=40 limit ~5x/day ("Unknown error (turns=41)"). Each failure wastes a retry (15min delay + ~200s rerun). Success avg=201s/p75=288s/max=488s shows runs are well within safe zone for 50 turns (max ~600s, jetsam kills at 5000+s). Fix: increase max_turns 40→50 in ~/.klava/jobs.json.
+- **resolved:** 2026-05-15 Bumped max_turns 40→50 in ~/.klava/jobs.json (hot-reload)
 
 ### [2026-05-14] Unknown error logging improved - add turns count for diagnosis
 - **source:** self-evolve CRON analysis
