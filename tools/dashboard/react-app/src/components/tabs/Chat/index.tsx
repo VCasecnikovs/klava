@@ -815,6 +815,18 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     // Socket.IO available - use it
     if (socketRef.current?.connected) {
       if (stateRef.current.realtimeStatus === 'streaming') {
+        const currentBlocks = realtimeBlocksRef.current;
+        const nextId = currentBlocks.reduce((max, block) => Math.max(max, block.id), -1) + 1;
+        const pendingBlock: Block = {
+          type: 'user',
+          id: nextId,
+          text,
+          files: files.length > 0 ? files : undefined,
+          pending: true,
+        };
+        realtimeBlocksRef.current = [...currentBlocks, pendingBlock];
+        dispatch({ type: 'REALTIME_BLOCK_ADD', block: pendingBlock });
+
         const payload: Record<string, unknown> = {
           prompt: text,
           tab_id: stateRef.current.tabId,
@@ -838,7 +850,7 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
     httpSend(text, files);
     scrollBottom();
     return true;
-  }, [socketRef, chatStartStream, model, effort, scrollBottom, httpSend]);
+  }, [socketRef, chatStartStream, model, effort, scrollBottom, httpSend, dispatch]);
 
   // Expose handleSend to artifact components via context ref
   useEffect(() => {

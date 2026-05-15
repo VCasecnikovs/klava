@@ -26,6 +26,8 @@ vi.mock('@/api/client', () => ({
     chatStateName: vi.fn().mockResolvedValue({}),
     chatStateRead: vi.fn().mockResolvedValue({}),
     chatStateCancel: vi.fn().mockResolvedValue({}),
+    chatScopeGet: vi.fn().mockResolvedValue({ scope: null }),
+    chatScopeSet: vi.fn().mockResolvedValue({ ok: true, scope: null }),
     uploadFile: vi.fn().mockResolvedValue({ files: [] }),
     sessionsSearch: vi.fn().mockResolvedValue({ sessions: [] }),
     sessionFork: vi.fn().mockResolvedValue({ session_id: 'fork-123' }),
@@ -70,11 +72,26 @@ async function renderChat() {
   return { result: result!, socket };
 }
 
+async function activateSession(sessionId: string, label = 'Test Session') {
+  await act(async () => {
+    MockSocket.instance?.simulateEvent('chat_state_sync', {
+      active_sessions: [{ tab_id: null, session_id: sessionId }],
+      session_names: { [sessionId]: label },
+      streaming_sessions: [],
+      unread_sessions: [],
+    });
+  });
+  const item = Array.from(document.querySelectorAll('.chat-sidebar-item'))
+    .find(el => el.textContent?.includes(label)) as HTMLElement;
+  await act(async () => { fireEvent.click(item); });
+}
+
 async function establishSession(socket: MockSocket, tabId: string, opts: {
   historyBlocks?: Array<Record<string, unknown>>;
   realtimeBlocks?: Array<Record<string, unknown>>;
   streaming?: boolean;
 } = {}) {
+  await activateSession(tabId, `Session ${tabId}`);
   const { historyBlocks = [], realtimeBlocks = [], streaming = false } = opts;
   await act(async () => {
     socket.simulateEvent('history_snapshot', {
@@ -442,6 +459,7 @@ describe('ChatInput - streaming state', () => {
     const sent = MockSocket.emitted.filter(e => e.event === 'send_message');
     expect(sent.length).toBe(1);
     expect(textarea.value).toBe('');
+    expect(document.querySelector('.chat-msg-pending')?.textContent).toContain('follow up message');
   });
 
   test('cancel button emits cancel event', async () => {
