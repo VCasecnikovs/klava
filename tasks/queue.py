@@ -834,7 +834,7 @@ def create_result(
         parent_task_id: GTask ID of the finished task being reported on,
             or `None` for standalone informational cards.
         title: short human title (no tag prefix needed; [RESULT] is added).
-        body: markdown summary (## What was done / ## Key findings / ...).
+        body: markdown summary (## What was done / ## Key findings / ## Verification / ...).
         shape: optional shape carried over from parent (informational).
         mode_tags: list of mode/category tags.
         priority: default "low" — results aren't urgent by default.
@@ -1669,7 +1669,7 @@ def create_continuation(
         instructions = (
             "## Instructions\n"
             "Execute the plan above end-to-end. Produce a [RESULT] card with "
-            "`## What was done / ## Key findings / ## Artifacts / ## Suggested next step`. "
+            "`## What was done / ## Key findings / ## Verification / ## Artifacts / ## Suggested next step`. "
             "Incorporate the user's comment (if any) as a steering nudge."
         )
     elif mode == "research-more":
@@ -1687,7 +1687,7 @@ def create_continuation(
         instructions = (
             "## Instructions\n"
             "Continue from the earlier result. Address the user's comment and produce a new "
-            "[RESULT] card with `## What was done / ## Key findings / ## Artifacts / "
+            "[RESULT] card with `## What was done / ## Key findings / ## Verification / ## Artifacts / "
             "## Suggested next step`."
         )
 

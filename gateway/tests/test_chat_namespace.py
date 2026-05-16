@@ -29,6 +29,7 @@ import threading
 import time
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, AsyncMock, PropertyMock
 
 
@@ -872,6 +873,25 @@ class TestBlockAddUpdate:
             assert args[1]["patch"] == {"text": "updated"}
             flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
 
+    def test_block_add_and_update_are_buffered_for_replay(self, chat_ns, flask_app_module, flask_app):
+        tab_id = "tab-blk-buffer"
+        with flask_app.app_context():
+            flask_app_module.CHAT_SESSIONS[tab_id] = {
+                "socket_sids": set(),
+                "blocks": [],
+                "buffer": [],
+                "last_activity_ts": 0,
+            }
+            with patch.object(flask_app_module.socketio, "emit"):
+                chat_ns._block_add(tab_id, {"type": "assistant", "text": ""})
+                chat_ns._block_update(tab_id, 0, {"text": "final text"})
+
+            buf = flask_app_module.CHAT_SESSIONS[tab_id]["buffer"]
+            assert [evt["event"] for evt in buf] == ["realtime_block_add", "realtime_block_update"]
+            assert buf[-1]["data"]["patch"] == {"text": "final text"}
+            assert buf[-1]["data"]["tab_id"] == tab_id
+            flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
+
 
 # ── _emit_queue_update ──────────────────────────────────────────────
 
@@ -1101,6 +1121,56 @@ class TestOnSendMessage:
                             assert call_args[1]["args"][5] == "high"  # effort
                             assert call_args[1]["args"][6] == "bypass"  # mode
 
+    def test_codex_native_model_routes_to_codex_runner(self, chat_ns, flask_app):
+        """codex:* models bypass Claude/proxy and start the native Codex runner."""
+        with flask_app.app_context():
+            with patch("webhook_server.request", self._mock_request("sock-sm-8")):
+                with patch("webhook_server.emit"):
+                    with patch.object(chat_ns, "_route_message", return_value=False):
+                        with patch("threading.Thread") as mock_thread:
+                            mock_thread.return_value.start = MagicMock()
+                            chat_ns.on_send_message({
+                                "prompt": "test",
+                                "tab_id": "tab-sm-8",
+                                "model": "codex:gpt-5.5",
+                            })
+                            call_args = mock_thread.call_args
+                            assert call_args[1]["target"].__name__ == "_run_codex_native"
+                            assert call_args[1]["args"][4] == "codex:gpt-5.5"
+
+    def test_plain_gpt55_routes_to_native_codex_runner(self, chat_ns, flask_app):
+        """Dashboard GPT-5.5 is native Codex, even when old state sends gpt-5.5."""
+        with flask_app.app_context():
+            with patch("webhook_server.request", self._mock_request("sock-sm-10")):
+                with patch("webhook_server.emit"):
+                    with patch.object(chat_ns, "_route_message", return_value=False):
+                        with patch("threading.Thread") as mock_thread:
+                            mock_thread.return_value.start = MagicMock()
+                            chat_ns.on_send_message({
+                                "prompt": "test",
+                                "tab_id": "tab-sm-10",
+                                "model": "gpt-5.5",
+                            })
+                            call_args = mock_thread.call_args
+                            assert call_args[1]["target"].__name__ == "_run_codex_native"
+                            assert call_args[1]["args"][4] == "codex:gpt-5.5"
+
+    def test_plain_gpt_model_still_routes_to_claude_proxy_path(self, chat_ns, flask_app):
+        """Existing gpt-* options keep using the Claude SDK proxy path."""
+        with flask_app.app_context():
+            with patch("webhook_server.request", self._mock_request("sock-sm-9")):
+                with patch("webhook_server.emit"):
+                    with patch.object(chat_ns, "_route_message", return_value=False):
+                        with patch("threading.Thread") as mock_thread:
+                            mock_thread.return_value.start = MagicMock()
+                            chat_ns.on_send_message({
+                                "prompt": "test",
+                                "tab_id": "tab-sm-9",
+                                "model": "gpt-5.4",
+                            })
+                            call_args = mock_thread.call_args
+                            assert call_args[1]["target"].__name__ == "_run_claude"
+
 
 class TestChatModelAndBetas:
     """Tests for dashboard model selector normalization."""
@@ -1187,6 +1257,317 @@ class TestLastInputTokens:
                 assert flask_app_module._last_input_tokens(tab_id) == 999
             finally:
                 flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
+
+
+class TestCodexNativeBlocks:
+    def test_command_execution_maps_to_bash_tool_blocks(self, flask_app_module):
+        item = {
+            "type": "commandExecution",
+            "id": "cmd_1",
+            "command": "printf KLAVA_CODEX_TOOL_OK",
+            "cwd": "/tmp",
+            "source": "agent",
+            "status": "completed",
+            "aggregatedOutput": "KLAVA_CODEX_TOOL_OK",
+            "durationMs": 42,
+        }
+
+        tool = flask_app_module._codex_tool_use_block_from_item(item)
+        result = flask_app_module._codex_tool_result_block_from_item(item)
+
+        assert tool["tool"] == "Bash"
+        assert tool["tool_use_id"] == "cmd_1"
+        assert tool["input"]["command"] == "printf KLAVA_CODEX_TOOL_OK"
+        assert tool["running"] is False
+        assert tool["duration_ms"] == 42
+        assert result["tool"] == "Bash"
+        assert result["tool_use_id"] == "cmd_1"
+        assert result["content"] == "KLAVA_CODEX_TOOL_OK"
+
+    def test_mcp_tool_call_uses_dashboard_mcp_name(self, flask_app_module):
+        item = {
+            "type": "mcpToolCall",
+            "id": "mcp_1",
+            "server": "github",
+            "tool": "list_issues",
+            "status": "completed",
+            "arguments": {"repo": "owner/repo"},
+            "result": {"issues": []},
+        }
+
+        tool = flask_app_module._codex_tool_use_block_from_item(item)
+        result = flask_app_module._codex_tool_result_block_from_item(item)
+
+        assert tool["tool"] == "mcp__github__list_issues"
+        assert tool["input"] == {"repo": "owner/repo"}
+        assert result["tool"] == "mcp__github__list_issues"
+        assert '"issues": []' in result["content"]
+
+    def test_non_tool_item_is_ignored(self, flask_app_module):
+        assert flask_app_module._codex_tool_use_block_from_item({"type": "agentMessage", "id": "a"}) is None
+        assert flask_app_module._codex_tool_result_block_from_item({"type": "agentMessage", "id": "a"}) is None
+
+
+class TestCodexNativeContext:
+    def test_developer_instructions_include_klava_memory_and_skills(self, flask_app_module, tmp_path, monkeypatch):
+        claude_dir = tmp_path / ".claude"
+        project_root = tmp_path / "repo"
+        skill_dir = claude_dir / "skills" / "personal" / "memory"
+        project_memory_dir = claude_dir / "projects" / "proj-slug" / "memory"
+        project_root_memory_dir = (
+            claude_dir
+            / "projects"
+            / flask_app_module._claude_project_slug_for_path(project_root)
+            / "memory"
+        )
+        skill_dir.mkdir(parents=True)
+        project_memory_dir.mkdir(parents=True)
+        project_root_memory_dir.mkdir(parents=True)
+        project_root.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("System prompt sentinel KLAVA_CLAUDE_MD")
+        (claude_dir / "MEMORY.md").write_text("Global memory sentinel KLAVA_MEMORY_MD")
+        (project_memory_dir / "MEMORY.md").write_text("Project memory sentinel KLAVA_PROJECT_MEMORY")
+        (project_root_memory_dir / "MEMORY.md").write_text(
+            "Project-root memory sentinel KLAVA_PROJECT_ROOT_MEMORY"
+        )
+        (skill_dir / "SKILL.md").write_text("description: Memory skill sentinel KLAVA_SKILL_DESC\n\nBody")
+
+        monkeypatch.setattr(flask_app_module._gateway_config, "claude_config_dir", lambda: claude_dir)
+        monkeypatch.setattr(flask_app_module._gateway_config, "project_slug", lambda: "proj-slug")
+        monkeypatch.setattr(flask_app_module._gateway_config, "project_root", lambda: project_root)
+
+        text = flask_app_module._codex_native_developer_instructions()
+
+        assert "KLAVA_CLAUDE_MD" in text
+        assert "KLAVA_MEMORY_MD" in text
+        assert "KLAVA_PROJECT_MEMORY" in text
+        assert "KLAVA_PROJECT_ROOT_MEMORY" in text
+        assert "personal/memory" in text
+        assert "KLAVA_SKILL_DESC" in text
+
+
+class TestCodexNativeHistory:
+    def test_rollout_jsonl_maps_function_calls_to_history_blocks(self, flask_app_module, tmp_path):
+        path = tmp_path / "rollout.jsonl"
+        rows = [
+            {"type": "session_meta", "payload": {"id": "codex-thread-raw", "model": "gpt-5.5"}},
+            {"type": "response_item", "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>/tmp</cwd>\n</environment_context>"}],
+            }},
+            {"type": "response_item", "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Run it"}],
+            }},
+            {"type": "response_item", "payload": {
+                "type": "function_call",
+                "name": "exec_command",
+                "call_id": "call_1",
+                "arguments": "{\"cmd\":\"printf ok\"}",
+            }},
+            {"type": "response_item", "payload": {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "Output:\nok",
+            }},
+            {"type": "response_item", "payload": {
+                "type": "custom_tool_call",
+                "name": "apply_patch",
+                "call_id": "call_2",
+                "input": "*** Begin Patch\n*** End Patch\n",
+            }},
+            {"type": "response_item", "payload": {
+                "type": "custom_tool_call_output",
+                "call_id": "call_2",
+                "output": "{\"output\":\"Success. Updated files\"}",
+            }},
+            {"type": "response_item", "payload": {
+                "type": "web_search_call",
+                "status": "completed",
+                "action": {"type": "open_page", "url": "https://example.com/page"},
+            }},
+            {"type": "response_item", "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Done"}],
+            }},
+            {"type": "event_msg", "payload": {
+                "type": "task_complete",
+                "duration_ms": 2500,
+            }},
+        ]
+        path.write_text("\n".join(json.dumps(r) for r in rows))
+
+        blocks, model = flask_app_module._codex_blocks_from_rollout_jsonl(str(path), "codex-thread-raw")
+
+        assert model == "gpt-5.5"
+        assert [b["type"] for b in blocks] == [
+            "user",
+            "tool_use",
+            "tool_result",
+            "tool_use",
+            "tool_result",
+            "tool_use",
+            "tool_result",
+            "assistant",
+            "cost",
+        ]
+        assert blocks[1]["tool"] == "Bash"
+        assert blocks[1]["input"]["cmd"] == "printf ok"
+        assert blocks[2]["tool_use_id"] == "call_1"
+        assert "ok" in blocks[2]["content"]
+        assert blocks[3]["tool"] == "Edit"
+        assert blocks[3]["input"]["patch"].startswith("*** Begin Patch")
+        assert "Success" in blocks[4]["content"]
+        assert blocks[5]["tool"] == "WebSearch"
+        assert blocks[5]["input"]["url"] == "https://example.com/page"
+        assert blocks[7]["text"] == "Done"
+        assert blocks[8]["seconds"] == 2
+
+    def test_thread_read_payload_maps_to_history_blocks(self, flask_app_module):
+        thread = {
+            "id": "codex-thread-1",
+            "modelProvider": "openai",
+            "turns": [{
+                "id": "turn-1",
+                "status": "completed",
+                "durationMs": 1500,
+                "items": [
+                    {"type": "userMessage", "id": "u1", "content": [{"type": "text", "text": "Hello Codex"}]},
+                    {"type": "reasoning", "id": "r1", "summary": ["Thinking"], "content": []},
+                    {
+                        "type": "commandExecution",
+                        "id": "cmd1",
+                        "command": "printf ok",
+                        "cwd": "/tmp",
+                        "status": "completed",
+                        "aggregatedOutput": "ok",
+                    },
+                    {"type": "agentMessage", "id": "a1", "text": "Done"},
+                    {"type": "contextCompaction", "id": "c1"},
+                ],
+            }],
+        }
+
+        blocks, model = flask_app_module._codex_blocks_from_thread(thread)
+
+        assert model == "codex:gpt-5.5"
+        assert [b["type"] for b in blocks] == [
+            "user", "thinking", "tool_use", "tool_result", "assistant", "compaction", "cost",
+        ]
+        assert blocks[0]["text"] == "Hello Codex"
+        assert blocks[2]["tool"] == "Bash"
+        assert blocks[3]["content"] == "ok"
+        assert blocks[4]["text"] == "Done"
+
+
+class TestCodexNativeRealtime:
+    def test_streaming_notifications_render_thinking_tools_and_text(
+        self, chat_ns, flask_app_module, flask_app, tmp_path, monkeypatch
+    ):
+        async def run():
+            await self._streaming_notifications_render_thinking_tools_and_text(
+                chat_ns, flask_app_module, flask_app, tmp_path, monkeypatch
+            )
+
+        asyncio.run(run())
+
+    async def _streaming_notifications_render_thinking_tools_and_text(
+        self, chat_ns, flask_app_module, flask_app, tmp_path, monkeypatch
+    ):
+        instances = []
+
+        class FakeCodexClient:
+            def __init__(self, *args, **kwargs):
+                self.proc = None
+                self.start_kwargs = None
+                self.turn_kwargs = None
+                instances.append(self)
+
+            async def connect(self):
+                return None
+
+            async def close(self):
+                return None
+
+            async def start_or_resume_thread(self, thread_id, **kwargs):
+                self.start_kwargs = kwargs
+                return thread_id or "codex-thread-stream"
+
+            async def run_turn(self, **kwargs):
+                self.turn_kwargs = kwargs
+                on_notification = kwargs["on_notification"]
+                await on_notification({
+                    "method": "item/reasoning/summaryTextDelta",
+                    "params": {"itemId": "reason_1", "delta": "Checking tools."},
+                })
+                await on_notification({
+                    "method": "item/started",
+                    "params": {"item": {
+                        "type": "commandExecution",
+                        "id": "cmd_1",
+                        "command": "printf ok",
+                        "cwd": str(tmp_path),
+                        "status": "inProgress",
+                    }},
+                })
+                await on_notification({
+                    "method": "item/commandExecution/outputDelta",
+                    "params": {"itemId": "cmd_1", "delta": "ok"},
+                })
+                await on_notification({
+                    "method": "item/completed",
+                    "params": {"item": {
+                        "type": "commandExecution",
+                        "id": "cmd_1",
+                        "command": "printf ok",
+                        "cwd": str(tmp_path),
+                        "status": "completed",
+                        "aggregatedOutput": "",
+                        "durationMs": 7,
+                    }},
+                })
+                await kwargs["on_text_delta"]("Done")
+                return SimpleNamespace(
+                    thread_id=kwargs["thread_id"],
+                    status="completed",
+                    usage={},
+                    model="gpt-5.5",
+                )
+
+        tab_id = "tab-codex-stream"
+        monkeypatch.setattr(flask_app_module, "CodexAppServerClient", FakeCodexClient)
+        monkeypatch.setattr(flask_app_module._gateway_config, "project_root", lambda: tmp_path)
+        monkeypatch.setattr(flask_app_module, "_codex_native_developer_instructions", lambda: "dev")
+        monkeypatch.setattr(flask_app_module.ChatNamespace, "PERSISTENT_IDLE_TIMEOUT", 0.01)
+        monkeypatch.setattr(flask_app_module, "_write_result_to_jsonl", lambda *args, **kwargs: None)
+        monkeypatch.setattr(flask_app_module, "_save_chat_ui_state", lambda: None)
+        monkeypatch.setattr(flask_app_module, "_broadcast_chat_state", lambda: None)
+        monkeypatch.setitem(flask_app_module._chat_ui_state, "active_sessions", [])
+
+        with flask_app.app_context():
+            with patch.object(flask_app_module.socketio, "emit"):
+                await chat_ns._run_codex_native_sdk(
+                    "sock-codex-stream",
+                    "prompt",
+                    tab_id,
+                    "codex-thread-stream",
+                    "codex:gpt-5.5",
+                    "low",
+                    "bypass",
+                )
+
+        blocks = flask_app_module.CHAT_SESSIONS[tab_id]["blocks"]
+        assert any(b.get("type") == "thinking" and "Checking tools" in b.get("text", "") for b in blocks)
+        assert any(b.get("type") == "tool_use" and b.get("tool") == "Bash" and b.get("running") is False for b in blocks)
+        assert any(b.get("type") == "tool_result" and b.get("content") == "ok" for b in blocks)
+        assert any(b.get("type") == "assistant" and b.get("text") == "Done" for b in blocks)
+        assert instances[0].start_kwargs["approval_policy"] == "never"
+        assert instances[0].turn_kwargs["mode"] == "bypass"
+
+        flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
 
 
 class TestChatContextUsage:
@@ -1376,6 +1757,40 @@ class TestOnResumeStream:
                     mock_emit.assert_called_once_with("error", {"message": "No active session to resume"})
 
 
+class TestOnWatchSession:
+    """Tests for on_watch_session recovery behavior."""
+
+    def test_inactive_cached_blocks_are_sent_as_realtime_fallback(self, chat_ns, flask_app_module, flask_app):
+        session_id = "codex-thread-final"
+        tab_id = "tab-final-cache"
+        cached_blocks = [
+            {"type": "user", "id": 0, "text": "question", "files": []},
+            {"type": "assistant", "id": 1, "text": "final text that was only streamed"},
+        ]
+        with flask_app.app_context():
+            flask_app_module.CHAT_SESSIONS[tab_id] = {
+                "claude_session_id": session_id,
+                "socket_sids": set(),
+                "blocks": cached_blocks,
+                "process_done": True,
+                "buffer": [],
+            }
+            with patch("webhook_server.request", MagicMock(sid="sock-watch-cache")):
+                with patch("webhook_server.emit") as mock_emit:
+                    with patch("webhook_server._find_session_file", return_value=None):
+                        with patch("webhook_server._build_blocks_from_codex_thread", return_value=([], None)):
+                            chat_ns.on_watch_session({"session_id": session_id})
+
+            realtime_call = next(
+                call for call in mock_emit.call_args_list
+                if call.args and call.args[0] == "realtime_snapshot"
+            )
+            assert realtime_call.args[1]["streaming"] is False
+            assert realtime_call.args[1]["blocks"] == cached_blocks
+            assert realtime_call.args[1]["tab_id"] == session_id
+            flask_app_module.CHAT_SESSIONS.pop(tab_id, None)
+
+
 # ── on_remove_active / on_add_active ────────────────────────────────
 
 
@@ -1458,7 +1873,7 @@ class TestActiveSessionManagement:
                 chat_ns.on_add_active({})
             mock_bc.assert_not_called()
 
-    def test_add_active_caps_at_20(self, chat_ns, flask_app_module, flask_app):
+    def test_add_active_keeps_all_sessions_when_uncapped(self, chat_ns, flask_app_module, flask_app):
         with flask_app.app_context():
             flask_app_module._chat_ui_state["active_sessions"] = [
                 {"tab_id": f"t{i}", "session_id": f"s{i}"} for i in range(20)
@@ -1467,9 +1882,44 @@ class TestActiveSessionManagement:
                 with patch.object(flask_app_module, "_broadcast_chat_state"):
                     chat_ns.on_add_active({"session_id": "overflow"})
 
-            assert len(flask_app_module._chat_ui_state["active_sessions"]) == 20
+            assert len(flask_app_module._chat_ui_state["active_sessions"]) == 21
             # New session is inserted at front
             assert flask_app_module._chat_ui_state["active_sessions"][0]["session_id"] == "overflow"
+
+    def test_repair_does_not_restore_closed_sessions_from_registry(self, flask_app_module, flask_app, monkeypatch):
+        """A small active list is valid after the user manually closes sessions."""
+        with flask_app.app_context():
+            flask_app_module._chat_ui_state["active_sessions"] = [
+                {"tab_id": None, "session_id": "keep-open"},
+            ]
+            monkeypatch.setattr(
+                flask_app_module,
+                "_recent_dashboard_session_ids",
+                lambda limit=40: [f"restored-{i}" for i in range(40)],
+            )
+
+            changed = flask_app_module._repair_corrupt_active_sessions_locked()
+
+            assert changed is False
+            assert flask_app_module._chat_ui_state["active_sessions"] == [
+                {"tab_id": None, "session_id": "keep-open"},
+            ]
+
+    def test_repair_only_removes_invalid_active_entries(self, flask_app_module, flask_app):
+        with flask_app.app_context():
+            flask_app_module._chat_ui_state["active_sessions"] = [
+                {"tab_id": None, "session_id": "keep-open"},
+                {"tab_id": "tab-codex-stream", "session_id": "codex-thread-stream"},
+                "bad-entry",
+                {},
+            ]
+
+            changed = flask_app_module._repair_corrupt_active_sessions_locked()
+
+            assert changed is True
+            assert flask_app_module._chat_ui_state["active_sessions"] == [
+                {"tab_id": None, "session_id": "keep-open"},
+            ]
 
 
 # ── on_connect / on_disconnect ──────────────────────────────────────

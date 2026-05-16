@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from lib.claude_executor import ClaudeExecutor, MCP_CONFIG, _proxy_env_for_model
+from lib.claude_executor import ClaudeExecutor, MCP_CONFIG, _clear_proxy_env, _proxy_env_for_model
 
 
 class TestBuildOptions:
@@ -108,6 +108,25 @@ class TestBuildOptions:
 
     def test_native_models_keep_default_output_ceiling(self):
         assert _proxy_env_for_model("opus[1m]") == {}
+
+    def test_clear_proxy_env_blanks_inherited_proxy_vars(self):
+        env = _clear_proxy_env()
+        assert env["ANTHROPIC_BASE_URL"] == ""
+        assert env["ANTHROPIC_AUTH_TOKEN"] == ""
+        assert env["ANTHROPIC_MODEL"] == ""
+        assert env["ANTHROPIC_SMALL_FAST_MODEL"] == ""
+
+    def test_native_model_with_api_key_helper_blanks_proxy_env(self):
+        with patch("lib.claude_executor._project_has_api_key_helper", return_value=True):
+            opts = self.executor._build_options(model="opus[1m]")
+        assert opts.env["ANTHROPIC_BASE_URL"] == ""
+        assert opts.env["ANTHROPIC_MODEL"] == ""
+
+    def test_proxy_model_still_uses_proxy_with_api_key_helper(self):
+        with patch("lib.claude_executor._project_has_api_key_helper", return_value=True):
+            opts = self.executor._build_options(model="gpt-5.5[1m]")
+        assert opts.env["ANTHROPIC_BASE_URL"].startswith("http://127.0.0.1:")
+        assert opts.env["ANTHROPIC_MODEL"] == "gpt-5.5[1m]"
 
 
 class TestExecutorInit:

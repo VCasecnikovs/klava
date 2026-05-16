@@ -173,7 +173,7 @@ describe('ChatSidebar', () => {
       const btns = document.querySelectorAll('.chat-filter-btn');
       expect(btns).toHaveLength(4);
       const labels = Array.from(btns).map(b => b.textContent);
-      expect(labels).toEqual(['Active', 'All', 'Human', 'Cron']);
+      expect(labels).toEqual(['Active', 'All', 'Human', 'Other']);
     });
 
     test('active filter is selected by default', () => {
@@ -197,11 +197,11 @@ describe('ChatSidebar', () => {
       expect(mockDispatchRef.current).toHaveBeenCalledWith({ type: 'SET_SIDEBAR_FILTER', filter: 'human' });
     });
 
-    test('clicking Cron filter dispatches correct action', () => {
+    test('clicking Other filter dispatches correct action', () => {
       renderSidebar();
-      const cronBtn = Array.from(document.querySelectorAll('.chat-filter-btn')).find(b => b.textContent === 'Cron')!;
-      fireEvent.click(cronBtn);
-      expect(mockDispatchRef.current).toHaveBeenCalledWith({ type: 'SET_SIDEBAR_FILTER', filter: 'cron' });
+      const otherBtn = Array.from(document.querySelectorAll('.chat-filter-btn')).find(b => b.textContent === 'Other')!;
+      fireEvent.click(otherBtn);
+      expect(mockDispatchRef.current).toHaveBeenCalledWith({ type: 'SET_SIDEBAR_FILTER', filter: 'other' });
     });
   });
 
@@ -313,8 +313,8 @@ describe('ChatSidebar', () => {
       expect(items).toHaveLength(2);
     });
 
-    test('cron filter only shows cron sessions', () => {
-      renderSidebar({ sidebarFilter: 'cron', allSessions: sessions });
+    test('other filter only shows non-human sessions', () => {
+      renderSidebar({ sidebarFilter: 'other', allSessions: sessions });
       const items = document.querySelectorAll('.chat-sidebar-item');
       expect(items).toHaveLength(1);
     });

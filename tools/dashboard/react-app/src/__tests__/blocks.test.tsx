@@ -83,7 +83,7 @@ function TestChatProvider({
 }: {
   children: ReactNode;
   stateOverrides?: Partial<ChatState>;
-  sendMessage?: (text: string) => void;
+  sendMessage?: (...args: any[]) => void;
 }) {
   const initialState: ChatState = {
     ...INITIAL_STATE,
@@ -91,7 +91,7 @@ function TestChatProvider({
   };
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const socketRef = useRef({
-    emit: vi.fn(),
+    emit: sendMessage ? vi.fn((...args: any[]) => sendMessage(...args)) : vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
     connected: true,
@@ -109,7 +109,7 @@ function TestChatProvider({
   );
 }
 
-function renderWithCtx(ui: React.ReactElement, stateOverrides?: Partial<ChatState>, sendMessage?: (text: string) => void) {
+function renderWithCtx(ui: React.ReactElement, stateOverrides?: Partial<ChatState>, sendMessage?: (...args: any[]) => void) {
   return render(
     <TestChatProvider stateOverrides={stateOverrides} sendMessage={sendMessage}>
       {ui}
@@ -426,11 +426,16 @@ describe('ToolUseBlock', () => {
     expect(container.innerHTML).toContain('test.ts');
   });
 
-  test('shows running class and spinner when running', () => {
+  test('shows running status with rail pulse and live timer', () => {
+    // Regression: the previous design used a separate .chat-tool-spinner dot.
+    // The new compact row design encodes running state as a status class on
+    // the card (drives a pulsing rail via CSS) plus a live elapsed-time
+    // element rendered in place of the static duration label.
     const block: Block = { type: 'tool_use', id: 4, tool: 'Bash', input: { command: 'sleep 10' }, running: true };
     const { container } = render(<ToolUseBlock block={block} />);
-    expect(container.querySelector('.chat-tool.running')).toBeInTheDocument();
-    expect(container.querySelector('.chat-tool-spinner')).toBeInTheDocument();
+    expect(container.querySelector('.chat-tool.chat-tool-running')).toBeInTheDocument();
+    expect(container.querySelector('.chat-tool-rail')).toBeInTheDocument();
+    expect(container.querySelector('.chat-tool-live')).toBeInTheDocument();
   });
 
   test('shows duration when finished', () => {
@@ -446,25 +451,29 @@ describe('ToolUseBlock', () => {
   });
 
   test('expands detail on click', () => {
+    // Regression: click target moved from a div .chat-tool-header to a real
+    // <button class="chat-tool-row-head"> for keyboard a11y. Detail is now
+    // conditionally mounted (not display-toggled) so we assert presence.
     const block: Block = { type: 'tool_use', id: 4, tool: 'Bash', input: { command: 'echo hello' } };
     const { container } = render(<ToolUseBlock block={block} />);
-    const header = container.querySelector('.chat-tool-header')!;
-    fireEvent.click(header);
-    const detail = container.querySelector('.chat-tool-detail') as HTMLElement;
-    expect(detail.style.display).toBe('block');
+    expect(container.querySelector('.chat-tool-detail')).not.toBeInTheDocument();
+    const head = container.querySelector('.chat-tool-row-head')!;
+    fireEvent.click(head);
+    expect(container.querySelector('.chat-tool-detail')).toBeInTheDocument();
+    expect(container.querySelector('.chat-tool.expanded')).toBeInTheDocument();
   });
 
   test('collapses detail on second click', () => {
     const block: Block = { type: 'tool_use', id: 4, tool: 'Bash', input: { command: 'echo hello' } };
     const { container } = render(<ToolUseBlock block={block} />);
-    const header = container.querySelector('.chat-tool-header')!;
-    fireEvent.click(header);
-    fireEvent.click(header);
-    const detail = container.querySelector('.chat-tool-detail') as HTMLElement;
-    expect(detail.style.display).toBe('none');
+    const head = container.querySelector('.chat-tool-row-head')!;
+    fireEvent.click(head);
+    fireEvent.click(head);
+    expect(container.querySelector('.chat-tool-detail')).not.toBeInTheDocument();
+    expect(container.querySelector('.chat-tool.expanded')).not.toBeInTheDocument();
   });
 
-  test('renders Edit tool with diff view', () => {
+  test('renders Edit tool with diff view when expanded', () => {
     const block: Block = {
       type: 'tool_use',
       id: 4,
@@ -472,8 +481,7 @@ describe('ToolUseBlock', () => {
       input: { file_path: '/tmp/foo.ts', old_string: 'old', new_string: 'new' },
     };
     const { container } = render(<ToolUseBlock block={block} />);
-    const header = container.querySelector('.chat-tool-header')!;
-    fireEvent.click(header);
+    fireEvent.click(container.querySelector('.chat-tool-row-head')!);
     expect(container.innerHTML).toContain('tool-diff-del');
     expect(container.innerHTML).toContain('tool-diff-add');
   });
@@ -501,11 +509,43 @@ describe('ToolUseBlock', () => {
     expect(container.querySelector('.chat-tool.expanded')).toBeInTheDocument();
   });
 
+  test('auto-expands native Codex Bash tool while running', () => {
+    const block: Block = { type: 'tool_use', id: 4, tool: 'Bash', input: { command: 'printf KLAVA_CODEX_TOOL_OK' }, running: true };
+    const { container } = render(<ToolUseBlock block={block} />);
+    expect(container.querySelector('.chat-tool.expanded')).toBeInTheDocument();
+    expect(container.innerHTML).toContain('printf KLAVA_CODEX_TOOL_OK');
+  });
+
+  test('renders native Codex exec_command cmd field', () => {
+    const block: Block = { type: 'tool_use', id: 4, tool: 'Bash', input: { cmd: 'git status --short', workdir: '/tmp/repo' } };
+    const { container } = render(<ToolUseBlock block={block} />);
+    expect(container.querySelector('.chat-tool-summary')?.textContent).toContain('git status --short');
+    fireEvent.click(container.querySelector('.chat-tool-row-head')!);
+    expect(container.querySelector('.tool-bash-cmd')?.textContent).toContain('git status --short');
+    expect(container.textContent).toContain('/tmp/repo');
+  });
+
+  test('renders native Codex write_stdin tool details', () => {
+    const block: Block = { type: 'tool_use', id: 4, tool: 'write_stdin', input: { session_id: 123, chars: 'yes\n' } };
+    const { container } = render(<ToolUseBlock block={block} />);
+    expect(container.querySelector('.chat-tool-summary')?.textContent).toContain('yes');
+    fireEvent.click(container.querySelector('.chat-tool-row-head')!);
+    expect(container.querySelector('.tool-bash-cmd')?.textContent).toContain('yes');
+  });
+
+  test('renders native Codex MCP tool names with MCP formatting', () => {
+    const block: Block = { type: 'tool_use', id: 4, tool: 'mcp__github__list_issues', input: { repo: 'owner/repo' } };
+    const { container } = render(<ToolUseBlock block={block} />);
+    fireEvent.click(container.querySelector('.chat-tool-row-head')!);
+    expect(container.innerHTML).toContain('tool-mcp-card');
+    expect(container.innerHTML).toContain('owner/repo');
+  });
+
   test('auto-expands server-side code execution tools while running', () => {
     const block: Block = { type: 'tool_use', id: 4, tool: 'BashCodeExecution', input: { command: 'python script.py' }, running: true };
     const { container } = render(<ToolUseBlock block={block} />);
     expect(container.querySelector('.chat-tool.expanded')).toBeInTheDocument();
-    expect(container.querySelector('.chat-tool-detail')).toHaveStyle({ display: 'block' });
+    expect(container.querySelector('.chat-tool-detail')).toBeInTheDocument();
   });
 });
 
@@ -624,7 +664,7 @@ describe('AgentBlock', () => {
     };
     const { container } = render(<AgentBlock block={block} />);
     expect(container.querySelector('.chat-agent.running')).toBeInTheDocument();
-    expect(container.querySelector('.chat-tool-spinner')).toBeInTheDocument();
+    expect(container.querySelector('.agent-spinner')).toBeInTheDocument();
   });
 
   test('auto-expands when running', () => {
@@ -648,7 +688,7 @@ describe('AgentBlock', () => {
       agent_blocks: [],
     };
     const { container } = render(<AgentBlock block={block} />);
-    expect(container.innerHTML).toContain('Starting...');
+    expect(container.innerHTML).toContain('Starting agent...');
   });
 
   test('shows "Completed" when not running with no content', () => {
@@ -678,7 +718,7 @@ describe('AgentBlock', () => {
       ],
     };
     const { container } = render(<AgentBlock block={block} />);
-    expect(container.querySelector('.chat-tool')).toBeInTheDocument();
+    expect(container.querySelector('.chat-tool-run')).toBeInTheDocument();
     expect(container.querySelector('.chat-msg-assistant')).toBeInTheDocument();
   });
 
@@ -718,7 +758,7 @@ describe('AgentBlock', () => {
     };
     const { container } = render(<AgentBlock block={block} />);
     expect(container.innerHTML).toContain('research');
-    expect(container.querySelector('.chat-agent-badge')).toBeInTheDocument();
+    expect(container.querySelector('.chat-agent-label')).toBeInTheDocument();
   });
 
   test('toggles expansion on click', () => {
@@ -999,23 +1039,26 @@ describe('PlanReviewBlock', () => {
   test('clicking Approve sends message and shows responded label', () => {
     const sendFn = vi.fn();
     const planBlock: Block = { type: 'plan', id: 12, content: 'Plan' };
-    const { container } = renderWithCtx(<PlanReviewBlock planBlock={planBlock} />, {}, sendFn);
+    const { container } = renderWithCtx(<PlanReviewBlock planBlock={planBlock} />, { tabId: 'tab-plan-1' }, sendFn);
     fireEvent.click(screen.getByText('Approve Plan'));
-    expect(sendFn).toHaveBeenCalledWith('Proceed with this plan');
+    expect(sendFn).toHaveBeenCalledWith('plan_approval', { approved: true, tab_id: 'tab-plan-1' });
     expect(container.innerHTML).toContain('Plan approved');
     expect(container.querySelector('.chat-plan-review-responded')).toBeInTheDocument();
   });
 
-  test('clicking Request Changes dispatches prefill event', () => {
-    const handler = vi.fn();
-    window.addEventListener('chat:prefill-input', handler);
+  test('clicking Request Changes submits feedback over socket', () => {
+    const sendFn = vi.fn();
     const planBlock: Block = { type: 'plan', id: 12, content: 'Plan' };
-    renderWithCtx(<PlanReviewBlock planBlock={planBlock} />);
+    renderWithCtx(<PlanReviewBlock planBlock={planBlock} />, { tabId: 'tab-plan-2' }, sendFn);
     fireEvent.click(screen.getByText('Request Changes'));
-    expect(handler).toHaveBeenCalledTimes(1);
-    const detail = (handler.mock.calls[0][0] as CustomEvent).detail;
-    expect(detail.text).toBe("I'd like to change: ");
-    window.removeEventListener('chat:prefill-input', handler);
+    const input = screen.getByPlaceholderText('What would you like to change?');
+    fireEvent.change(input, { target: { value: 'Use a smaller first step' } });
+    fireEvent.click(screen.getByText('Send Feedback'));
+    expect(sendFn).toHaveBeenCalledWith('plan_approval', {
+      approved: false,
+      changes: 'Use a smaller first step',
+      tab_id: 'tab-plan-2',
+    });
   });
 
   test('renders responded state when plan is pre-answered', () => {
@@ -1123,6 +1166,7 @@ describe('BlockRenderer', () => {
     const { container } = renderWithCtx(<BlockRenderer block={block} />);
     expect(container.querySelector('.chat-plan-banner')).toBeInTheDocument();
     expect(container.innerHTML).toContain('Entered Plan Mode');
+    expect(container.innerHTML).toContain('The agent is drafting a plan before executing');
   });
 
   test('renders plan block with ready state', () => {

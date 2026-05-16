@@ -16,6 +16,8 @@ const MODEL_WINDOW: Record<string, number> = {
   'gpt-5.4': 272_000,
   'gpt-5.3-codex': 272_000,
   'gpt-5.4-mini': 272_000,
+  'codex:gpt-5.5': 272_000,
+  'codex:gpt-5.4': 272_000,
 };
 
 function lastUsage(blocks: Block[]): Block['usage'] | null {

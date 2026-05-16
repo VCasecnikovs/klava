@@ -43,6 +43,12 @@ from flask_socketio import SocketIO, emit, Namespace
 # Add lib to path
 sys.path.insert(0, str(Path(__file__).parent))
 from lib.claude_executor import ClaudeExecutor, _proxy_env_for_model
+from lib.codex_native import (
+    CodexAppServerClient,
+    CodexNativeError,
+    is_native_codex_model,
+    strip_native_codex_prefix,
+)
 from lib.session_registry import register_session
 from lib.process_reaper import start_reaper_thread
 
@@ -95,6 +101,587 @@ def _chat_model_and_betas(model: str | None) -> tuple[str | None, list[str] | No
     if model and "[1m]" in model and not _proxy_env_for_model(model):
         return model.replace("[1m]", ""), ["context-1m-2025-08-07"]
     return model, None
+
+
+_CODEX_TOOL_ITEM_TYPES = {
+    "commandExecution",
+    "fileChange",
+    "mcpToolCall",
+    "dynamicToolCall",
+    "collabAgentToolCall",
+    "webSearch",
+    "imageView",
+    "imageGeneration",
+}
+
+
+def _jsonish_to_text(value, fallback="completed") -> str:
+    """Compact app-server result values for dashboard tool result blocks."""
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except Exception:
+        return str(value)
+
+
+def _codex_tool_output_text(value, fallback="completed") -> str:
+    """Unwrap Codex tool output envelopes into displayable text."""
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return value or fallback
+        if isinstance(parsed, dict):
+            if parsed.get("output"):
+                return str(parsed.get("output"))
+            if parsed.get("error"):
+                return str(parsed.get("error"))
+        return _jsonish_to_text(parsed, fallback=fallback)
+    return _jsonish_to_text(value, fallback=fallback)
+
+
+def _codex_tool_id(item: dict) -> str:
+    return str(item.get("id") or item.get("itemId") or item.get("callId") or "")
+
+
+def _codex_mcp_tool_name(server: str, tool: str) -> str:
+    clean_server = (server or "mcp").strip().replace("-", "_").replace(" ", "_")
+    clean_tool = (tool or "tool").strip().replace("-", "_").replace(" ", "_")
+    if clean_tool.startswith("mcp__"):
+        return clean_tool
+    return f"mcp__{clean_server}__{clean_tool}"
+
+
+def _codex_tool_use_block_from_item(item: dict) -> dict | None:
+    """Translate native Codex ThreadItem variants into Klava tool_use blocks."""
+    if not isinstance(item, dict):
+        return None
+    item_type = item.get("type")
+    if item_type not in _CODEX_TOOL_ITEM_TYPES:
+        return None
+
+    tool_id = _codex_tool_id(item)
+    duration = item.get("durationMs")
+    base = {
+        "type": "tool_use",
+        "tool_use_id": tool_id,
+        "running": item.get("status") not in {"completed", "failed", "cancelled"},
+    }
+    if isinstance(duration, (int, float)):
+        base["duration_ms"] = int(duration)
+
+    if item_type == "commandExecution":
+        return {
+            **base,
+            "tool": "Bash",
+            "input": {
+                "command": item.get("command") or "",
+                "cwd": item.get("cwd") or "",
+                "source": item.get("source") or "",
+            },
+        }
+    if item_type == "fileChange":
+        return {
+            **base,
+            "tool": "Edit",
+            "input": {
+                "changes": item.get("changes") or [],
+                "status": item.get("status") or "",
+            },
+        }
+    if item_type == "mcpToolCall":
+        server = str(item.get("server") or "mcp")
+        tool = str(item.get("tool") or "tool")
+        return {
+            **base,
+            "tool": _codex_mcp_tool_name(server, tool),
+            "input": item.get("arguments") if isinstance(item.get("arguments"), dict) else {
+                "server": server,
+                "tool": tool,
+                "arguments": item.get("arguments"),
+            },
+        }
+    if item_type == "dynamicToolCall":
+        namespace = str(item.get("namespace") or "dynamic")
+        tool = str(item.get("tool") or "tool")
+        return {
+            **base,
+            "tool": f"{namespace}.{tool}" if namespace else tool,
+            "input": item.get("arguments") if isinstance(item.get("arguments"), dict) else {
+                "arguments": item.get("arguments"),
+            },
+        }
+    if item_type == "collabAgentToolCall":
+        return {
+            **base,
+            "tool": "Agent",
+            "input": {
+                "description": item.get("tool") or "collaboration",
+                "prompt": item.get("prompt") or "",
+                "model": item.get("model") or "",
+                "reasoning_effort": item.get("reasoningEffort") or "",
+            },
+        }
+    if item_type == "webSearch":
+        return {**base, "tool": "WebSearch", "input": {"query": item.get("query") or "", "action": item.get("action")}}
+    if item_type == "imageView":
+        return {**base, "tool": "Read", "input": {"file_path": item.get("path") or "", "media_type": "image"}}
+    if item_type == "imageGeneration":
+        return {
+            **base,
+            "tool": "CodeExecution",
+            "input": {"description": "image generation", "prompt": item.get("revisedPrompt") or ""},
+        }
+    return None
+
+
+def _codex_tool_result_block_from_item(item: dict) -> dict | None:
+    """Translate completed native Codex ThreadItem variants into tool_result blocks."""
+    tool_use = _codex_tool_use_block_from_item(item)
+    if not tool_use:
+        return None
+
+    item_type = item.get("type")
+    if item_type == "commandExecution":
+        value = item.get("aggregatedOutput") or item.get("error")
+        if not value and item.get("exitCode") is not None:
+            value = f"exit code {item.get('exitCode')}"
+    elif item_type == "mcpToolCall":
+        value = item.get("error") or item.get("result") or item.get("status")
+    elif item_type == "fileChange":
+        value = item.get("status") or item.get("changes")
+    elif item_type == "dynamicToolCall":
+        value = item.get("contentItems") or item.get("status")
+    elif item_type == "collabAgentToolCall":
+        value = item.get("agentsStates") or item.get("status")
+    elif item_type == "webSearch":
+        value = item.get("action") or item.get("query")
+    elif item_type == "imageGeneration":
+        value = item.get("savedPath") or item.get("result") or item.get("status")
+    else:
+        value = item.get("result") or item.get("status")
+
+    return {
+        "type": "tool_result",
+        "tool": tool_use.get("tool"),
+        "tool_use_id": tool_use.get("tool_use_id"),
+        "input": tool_use.get("input") or {},
+        "content": _jsonish_to_text(value)[:2000],
+    }
+
+
+def _find_codex_session_file(session_id: str | None) -> str | None:
+    """Find native Codex rollout JSONL for a session id."""
+    if not session_id:
+        return None
+    root = Path.home() / ".codex" / "sessions"
+    try:
+        matches = sorted(root.glob(f"**/*{session_id}.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        return None
+    return str(matches[0]) if matches else None
+
+
+def _codex_function_tool_name(name: str) -> str:
+    if name in {"exec_command", "shell", "bash"}:
+        return "Bash"
+    if name in {"apply_patch", "file_edit"}:
+        return "Edit"
+    return name or "Tool"
+
+
+def _codex_message_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        return str(content.get("text") or content.get("output_text") or content.get("input_text") or "")
+    parts = []
+    for item in content or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") in {"input_text", "output_text", "text"}:
+            parts.append(str(item.get("text") or ""))
+    return "\n".join(p for p in parts if p).strip()
+
+
+def _codex_hidden_history_message(text: str) -> bool:
+    stripped = (text or "").lstrip()
+    return stripped.startswith((
+        "<environment_context>",
+        "<permissions instructions>",
+        "<personality_spec>",
+        "<apps_instructions>",
+        "<skills_instructions>",
+        "<plugins_instructions>",
+    ))
+
+
+def _codex_function_call_args(name: str, raw_args) -> dict:
+    args = raw_args if raw_args is not None else {}
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+            args = parsed
+        except json.JSONDecodeError:
+            args = {"patch" if name == "apply_patch" else "input": args}
+    if not isinstance(args, dict):
+        args = {"input": args}
+    return args
+
+
+def _codex_blocks_from_rollout_jsonl(path: str, session_id: str | None = None) -> tuple[list[dict], str | None]:
+    """Convert native Codex raw rollout JSONL into dashboard history blocks.
+
+    app-server thread/read currently omits function_call/function_call_output
+    items, while the rollout JSONL keeps them. History UI needs the raw log.
+    """
+    blocks = []
+    block_id = 0
+    detected_model = None
+    calls: dict[str, dict] = {}
+    last_task_complete = None
+
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                etype = entry.get("type")
+                payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+
+                if etype == "session_meta":
+                    detected_model = payload.get("model") or detected_model
+                    continue
+                if etype == "turn_context":
+                    detected_model = payload.get("model") or detected_model
+                    continue
+                if etype == "event_msg" and payload.get("type") == "task_complete":
+                    last_task_complete = payload
+                    continue
+                if etype != "response_item":
+                    continue
+
+                item_type = payload.get("type")
+                if item_type == "message":
+                    role = payload.get("role")
+                    if role not in {"user", "assistant"}:
+                        continue
+                    text = _codex_message_text(payload.get("content"))
+                    if _codex_hidden_history_message(text):
+                        continue
+                    if text:
+                        blocks.append({"type": role, "id": block_id, "text": text, "files": []} if role == "user" else {
+                            "type": "assistant",
+                            "id": block_id,
+                            "text": text,
+                        })
+                        block_id += 1
+                elif item_type == "reasoning":
+                    parts = []
+                    for key in ("summary", "content"):
+                        value = payload.get(key)
+                        if isinstance(value, list):
+                            parts.extend(str(v) for v in value if v)
+                        elif isinstance(value, str):
+                            parts.append(value)
+                    text = "\n".join(parts).strip()
+                    if text:
+                        blocks.append({
+                            "type": "thinking",
+                            "id": block_id,
+                            "text": text[:5000],
+                            "words": len(text.split()),
+                            "preview": text[:60].replace("\n", " "),
+                        })
+                        block_id += 1
+                elif item_type in {"function_call", "custom_tool_call"}:
+                    call_id = str(payload.get("call_id") or payload.get("id") or "")
+                    name = str(payload.get("name") or "")
+                    raw_args = payload.get("arguments") if item_type == "function_call" else payload.get("input")
+                    args = _codex_function_call_args(name, raw_args)
+                    tool = _codex_function_tool_name(name)
+                    calls[call_id] = {"tool": tool, "input": args}
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": block_id,
+                        "tool_use_id": call_id,
+                        "tool": tool,
+                        "input": args,
+                        "running": False,
+                    })
+                    block_id += 1
+                elif item_type in {"function_call_output", "custom_tool_call_output"}:
+                    call_id = str(payload.get("call_id") or "")
+                    call = calls.get(call_id) or {}
+                    blocks.append({
+                        "type": "tool_result",
+                        "id": block_id,
+                        "tool_use_id": call_id,
+                        "tool": call.get("tool") or "Tool",
+                        "input": call.get("input") or {},
+                        "content": _codex_tool_output_text(payload.get("output"))[:5000],
+                    })
+                    block_id += 1
+                elif item_type == "web_search_call":
+                    action = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+                    url = action.get("url") if isinstance(action, dict) else ""
+                    query = action.get("query") if isinstance(action, dict) else ""
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": block_id,
+                        "tool": "WebSearch",
+                        "input": {"query": query or url, "url": url, "action": action.get("type") if isinstance(action, dict) else ""},
+                        "running": False,
+                    })
+                    block_id += 1
+                    blocks.append({
+                        "type": "tool_result",
+                        "id": block_id,
+                        "tool": "WebSearch",
+                        "content": url or query or payload.get("status") or "completed",
+                    })
+                    block_id += 1
+
+        if last_task_complete:
+            duration_ms = last_task_complete.get("duration_ms")
+            seconds = int(duration_ms / 1000) if isinstance(duration_ms, (int, float)) else 0
+            blocks.append({
+                "type": "cost",
+                "id": block_id,
+                "seconds": seconds,
+                "cost": 0,
+                "session_id": session_id or "",
+                "subtype": "codex_native",
+                "stop_reason": "completed",
+                "model": detected_model,
+            })
+    except OSError:
+        return [], None
+
+    return blocks, detected_model
+
+
+def _build_blocks_from_codex_rollout(session_id: str) -> tuple[list[dict], str | None]:
+    path = _find_codex_session_file(session_id)
+    if not path:
+        return [], None
+    return _codex_blocks_from_rollout_jsonl(path, session_id=session_id)
+
+
+def _read_text_if_exists(path: Path, max_chars: int = 60_000) -> str:
+    try:
+        if path.exists() and path.is_file():
+            return path.read_text(errors="replace")[:max_chars].strip()
+    except Exception:
+        return ""
+    return ""
+
+
+def _extract_skill_description(text: str) -> str:
+    for line in text.splitlines()[:40]:
+        stripped = line.strip()
+        if stripped.lower().startswith("description:"):
+            return stripped.split(":", 1)[1].strip()
+    body_lines = [
+        line.strip("# ").strip()
+        for line in text.splitlines()[:12]
+        if line.strip() and not line.strip().startswith("---")
+    ]
+    return " ".join(body_lines[:2])[:240]
+
+
+def _claude_project_slug_for_path(path: Path) -> str:
+    return str(path.expanduser().resolve()).replace("/", "-")
+
+
+def _codex_native_developer_instructions() -> str:
+    """Build the Klava context that Claude SDK normally gets from .claude.
+
+    Native Codex app-server reads ~/.codex, not this dashboard's .claude tree.
+    Passing the important Klava files as developer instructions gives GPT the
+    same working memory, policy, and skill discovery surface in new sessions.
+    """
+    claude_dir = _gateway_config.claude_config_dir()
+    parts = [
+        "You are running inside Klava's native Codex integration.",
+        "Use the Klava/Claude context below as authoritative developer context.",
+        "When a skill is relevant or explicitly named, read its SKILL.md path before using it.",
+    ]
+
+    claude_md = _read_text_if_exists(claude_dir / "CLAUDE.md")
+    if claude_md:
+        parts.append(f"\n## Klava CLAUDE.md\n{claude_md}")
+
+    memory_md = _read_text_if_exists(claude_dir / "MEMORY.md")
+    if memory_md:
+        parts.append(f"\n## Klava MEMORY.md\n{memory_md}")
+
+    project_slugs = []
+    configured_slug = _gateway_config.project_slug()
+    if configured_slug:
+        project_slugs.append(configured_slug)
+    try:
+        project_slugs.append(_claude_project_slug_for_path(_gateway_config.project_root()))
+    except Exception:
+        pass
+
+    seen_project_slugs = set()
+    for project_slug in project_slugs:
+        if not project_slug or project_slug in seen_project_slugs:
+            continue
+        seen_project_slugs.add(project_slug)
+        project_memory = claude_dir / "projects" / project_slug / "memory" / "MEMORY.md"
+        project_memory_text = _read_text_if_exists(project_memory)
+        if project_memory_text:
+            parts.append(f"\n## Klava Project Memory ({project_slug})\n{project_memory_text}")
+
+    skills_dir = claude_dir / "skills"
+    skills = []
+    try:
+        for skill_file in sorted(skills_dir.glob("**/SKILL.md"))[:180]:
+            text = _read_text_if_exists(skill_file, max_chars=8_000)
+            rel = skill_file.relative_to(claude_dir)
+            name = str(rel.parent).replace("skills/", "", 1)
+            desc = _extract_skill_description(text)
+            skills.append(f"- {name}: {desc} (file: {skill_file})")
+    except Exception:
+        skills = []
+    if skills:
+        parts.append("\n## Available Klava Skills\n" + "\n".join(skills))
+
+    return "\n\n".join(part for part in parts if part).strip()
+
+
+def _codex_user_input_text(content) -> tuple[str, list]:
+    text_parts = []
+    files = []
+    for item in content or []:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "text":
+            text_parts.append(str(item.get("text") or ""))
+        elif item_type in {"localImage", "image"}:
+            path = item.get("path") or item.get("url") or ""
+            files.append({
+                "name": os.path.basename(path) or "image",
+                "path": path,
+                "url": path,
+                "type": "image/png",
+                "size": 0,
+            })
+        elif item_type in {"skill", "mention"}:
+            name = item.get("name") or item.get("path") or item_type
+            text_parts.append(f"@{name}")
+    return "\n".join(t for t in text_parts if t).strip(), files
+
+
+def _codex_blocks_from_thread(thread: dict) -> tuple[list[dict], str | None]:
+    """Convert native Codex thread/read payload into dashboard blocks."""
+    blocks = []
+    block_id = 0
+    detected_model = None
+
+    for turn in thread.get("turns") or []:
+        if not isinstance(turn, dict):
+            continue
+        for item in turn.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type == "userMessage":
+                text, files = _codex_user_input_text(item.get("content") or [])
+                if text or files:
+                    blocks.append({"type": "user", "id": block_id, "text": text, "files": files})
+                    block_id += 1
+            elif item_type == "agentMessage":
+                text = str(item.get("text") or "")
+                if text.strip():
+                    blocks.append({"type": "assistant", "id": block_id, "text": text})
+                    block_id += 1
+            elif item_type == "reasoning":
+                parts = []
+                for key in ("summary", "content"):
+                    value = item.get(key)
+                    if isinstance(value, list):
+                        parts.extend(str(v) for v in value if v)
+                text = "\n".join(parts)[:1000]
+                if text:
+                    blocks.append({
+                        "type": "thinking",
+                        "id": block_id,
+                        "text": text,
+                        "words": len(text.split()),
+                        "preview": text[:60].replace("\n", " "),
+                    })
+                    block_id += 1
+            elif item_type == "plan":
+                text = str(item.get("text") or "")
+                blocks.append({"type": "plan", "id": block_id, "active": False, "content": text})
+                block_id += 1
+            elif item_type == "contextCompaction":
+                blocks.append({"type": "compaction", "id": block_id, "state": "done", "trigger": "auto"})
+                block_id += 1
+            else:
+                tool = _codex_tool_use_block_from_item(item)
+                result = _codex_tool_result_block_from_item(item)
+                if tool:
+                    tool["id"] = block_id
+                    tool["running"] = False
+                    blocks.append(tool)
+                    block_id += 1
+                if result:
+                    result["id"] = block_id
+                    blocks.append(result)
+                    block_id += 1
+
+        if turn.get("durationMs") is not None:
+            blocks.append({
+                "type": "cost",
+                "id": block_id,
+                "seconds": int((turn.get("durationMs") or 0) / 1000),
+                "cost": 0,
+                "session_id": thread.get("id") or "",
+                "subtype": "codex_native",
+                "stop_reason": turn.get("status") or "",
+            })
+            block_id += 1
+
+    if thread.get("model"):
+        detected_model = str(thread.get("model"))
+    elif thread.get("modelProvider") == "openai":
+        detected_model = "codex:gpt-5.5"
+    return blocks, detected_model
+
+
+async def _read_codex_thread_async(session_id: str) -> tuple[list[dict], str | None]:
+    client = CodexAppServerClient(cwd=_gateway_config.project_root())
+    try:
+        await client.connect()
+        thread = await client.read_thread(session_id, include_turns=True)
+        return _codex_blocks_from_thread(thread)
+    finally:
+        await client.close()
+
+
+def _build_blocks_from_codex_thread(session_id: str) -> tuple[list[dict], str | None]:
+    """Best-effort history fallback for native Codex sessions without Claude JSONL."""
+    rollout_blocks, rollout_model = _build_blocks_from_codex_rollout(session_id)
+    if rollout_blocks:
+        return rollout_blocks, rollout_model
+    try:
+        return asyncio.run(_read_codex_thread_async(session_id))
+    except Exception as e:
+        app.logger.warning(f"Codex history read failed for {session_id[:12]}: {e}")
+        return [], None
 
 
 # Real input-token ceilings for proxy-routed models. Codex (ChatGPT/Plus/Pro) caps
@@ -362,6 +949,8 @@ def _load_chat_ui_state():
                 data["active_sessions"] = valid_active
                 data["version"] = 2
                 _chat_ui_state = data
+                if _repair_corrupt_active_sessions_locked():
+                    _save_chat_ui_state()
         except (json.JSONDecodeError, OSError) as e:
             app.logger.warning(f"Failed to load chat UI state: {e}")
 
@@ -450,6 +1039,57 @@ def _save_chat_ui_state():
         app.logger.error(f"Failed to save chat UI state: {e}")
 
 
+def _recent_dashboard_session_ids(limit: int = 40) -> list[str]:
+    try:
+        from lib.session_registry import list_sessions as list_registry
+        entries = list_registry(limit=300)
+    except Exception:
+        return []
+
+    ids = []
+    seen = set()
+    for entry in reversed(entries):
+        sid = entry.get("session_id")
+        if (
+            sid
+            and sid not in seen
+            and entry.get("type") == "user"
+            and entry.get("source") == "dashboard"
+        ):
+            ids.append(sid)
+            seen.add(sid)
+            if len(ids) >= limit:
+                break
+    return ids
+
+
+def _repair_corrupt_active_sessions_locked() -> bool:
+    """Drop malformed Active sidebar entries without overriding user curation."""
+    active = _chat_ui_state.setdefault("active_sessions", [])
+    before = len(active)
+
+    def _valid_entry(entry):
+        if not isinstance(entry, dict):
+            return False
+        sid = entry.get("session_id")
+        tid = entry.get("tab_id")
+        if sid == "codex-thread-stream" or tid == "tab-codex-stream":
+            return False
+        return bool(sid or tid)
+
+    cleaned = [e for e in active if _valid_entry(e)]
+    changed = len(cleaned) != len(active)
+
+    if changed:
+        _chat_ui_state["active_sessions"] = cleaned
+        app.logger.warning(
+            "Cleaned active_sessions: %s -> %s entries",
+            before,
+            len(cleaned),
+        )
+    return changed
+
+
 _cron_ids_cache = {"ids": set(), "ts": 0}
 
 def _get_cron_session_ids():
@@ -518,6 +1158,12 @@ def _get_chat_state_snapshot():
                 live_tabs.append((_tab_id, _sess.get("claude_session_id")))
 
     with _chat_ui_lock:
+        repaired = _repair_corrupt_active_sessions_locked()
+        if repaired:
+            try:
+                _save_chat_ui_state()
+            except Exception:
+                pass
         healed = False
         existing_tabs = {e.get("tab_id") for e in _chat_ui_state["active_sessions"] if e.get("tab_id")}
         for _tab_id, _sid in live_tabs:
@@ -1001,6 +1647,8 @@ class ChatNamespace(Namespace):
         effort = data.get("effort", "high")
         mode = data.get("mode", "bypass")
         files = data.get("files", [])
+        if model == "gpt-5.5":
+            model = "codex:gpt-5.5"
 
         app.logger.info(f"Chat send_message: sid={sid}, tab_id={tab_id and tab_id[:12]}, resume={resume_session_id and resume_session_id[:12]}, model={model}, effort={effort}, prompt_len={len(prompt)}, files={len(files)}")
 
@@ -1058,7 +1706,7 @@ class ChatNamespace(Namespace):
             return
 
         thread = threading.Thread(
-            target=self._run_claude,
+            target=self._run_codex_native if is_native_codex_model(model) else self._run_claude,
             args=(sid, prompt, tab_id, resume_session_id, model, effort, mode),
             daemon=True
         )
@@ -1444,12 +2092,7 @@ class ChatNamespace(Namespace):
             blocks = sess.setdefault("blocks", [])
             block["id"] = len(blocks)
             blocks.append(block)
-            target_sids = set(sess.get("socket_sids", set()))
-        for sid in target_sids:
-            try:
-                socketio.emit("realtime_block_add", {"block": block, "tab_id": tab_id}, namespace="/chat", to=sid)
-            except Exception:
-                pass
+        self._emit_buffered(tab_id, "realtime_block_add", {"block": block})
         if resurrect_broadcast:
             try:
                 _broadcast_chat_state()
@@ -1468,12 +2111,7 @@ class ChatNamespace(Namespace):
                 sess["session_idle"] = False
                 resurrect_broadcast = True
             sess["blocks"][block_id].update(patch)
-            target_sids = set(sess.get("socket_sids", set()))
-        for sid in target_sids:
-            try:
-                socketio.emit("realtime_block_update", {"id": block_id, "patch": patch, "tab_id": tab_id}, namespace="/chat", to=sid)
-            except Exception:
-                pass
+        self._emit_buffered(tab_id, "realtime_block_update", {"id": block_id, "patch": patch})
         if resurrect_broadcast:
             try:
                 _broadcast_chat_state()
@@ -1498,6 +2136,466 @@ class ChatNamespace(Namespace):
             _broadcast_chat_state()
             if isinstance(e, (KeyboardInterrupt, SystemExit)):
                 raise
+
+    def _run_codex_native(self, sid, prompt, tab_id, resume_session_id, model, effort="high", mode="bypass"):
+        """Run Codex through the native app-server using ChatGPT auth."""
+        try:
+            app.logger.info(
+                f"Starting native Codex session for tab {tab_id[:12]}, "
+                f"resume={resume_session_id and resume_session_id[:12]}, model={model}"
+            )
+            asyncio.run(self._run_codex_native_sdk(sid, prompt, tab_id, resume_session_id, model, effort, mode))
+        except BaseException as e:
+            if not isinstance(e, (KeyboardInterrupt, SystemExit)):
+                app.logger.error(f"Native Codex session crashed for tab {tab_id[:12]}: {e}", exc_info=True)
+                self._block_add(tab_id, {"type": "error", "message": str(e)})
+            self._clear_stream_state(tab_id)
+            with _chat_lock:
+                if tab_id in CHAT_SESSIONS:
+                    CHAT_SESSIONS[tab_id]["process_done"] = True
+            _broadcast_chat_state()
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
+
+    def _adopt_real_session_id(self, tab_id, real_session_id, resume_session_id, initial_prompt, model):
+        """Replace frontend tab id with the backend's durable session/thread id."""
+        with _chat_lock:
+            if tab_id in CHAT_SESSIONS:
+                CHAT_SESSIONS[tab_id]["claude_session_id"] = real_session_id
+        with _chat_ui_lock:
+            if real_session_id not in _chat_ui_state.get("unread_sessions", []):
+                _chat_ui_state.setdefault("unread_sessions", []).append(real_session_id)
+            for entry in _chat_ui_state["active_sessions"]:
+                if entry.get("tab_id") == tab_id:
+                    entry["session_id"] = real_session_id
+                    break
+            seen = False
+            deduped = []
+            for entry in _chat_ui_state["active_sessions"]:
+                if entry.get("session_id") == real_session_id:
+                    if seen:
+                        continue
+                    seen = True
+                deduped.append(entry)
+            _chat_ui_state["active_sessions"] = deduped
+            sns = _chat_ui_state.get("session_names", {})
+            if tab_id in sns:
+                sns[real_session_id] = sns.pop(tab_id)
+            drafts = _chat_ui_state.get("drafts", {})
+            if tab_id in drafts:
+                drafts[real_session_id] = drafts.pop(tab_id)
+            _chat_ui_state["unread_sessions"] = [
+                real_session_id if s == tab_id else s
+                for s in _chat_ui_state.get("unread_sessions", [])
+            ]
+            _save_chat_ui_state()
+        if not resume_session_id:
+            register_session(
+                session_id=real_session_id,
+                session_type="user",
+                model=strip_native_codex_prefix(model) if is_native_codex_model(model) else model,
+                source="dashboard",
+                provider="codex_native" if is_native_codex_model(model) else "claude",
+                preview=(initial_prompt or "")[:160],
+            )
+            threading.Thread(target=_auto_name_session, args=(real_session_id, initial_prompt), daemon=True).start()
+        _broadcast_chat_state()
+
+    async def _run_codex_native_sdk(self, sid, prompt, tab_id, resume_session_id, model, effort="high", mode="bypass"):
+        """Async native Codex implementation using `codex app-server`.
+
+        This avoids the Anthropic-compatible proxy path, so Codex owns its own
+        context management and compaction semantics. It intentionally requires
+        Codex ChatGPT auth and strips API-key environment variables in the child.
+        """
+        import time as _time
+
+        incoming = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        codex_cwd = _gateway_config.project_root()
+        codex_developer_instructions = _codex_native_developer_instructions()
+        client = CodexAppServerClient(cwd=codex_cwd)
+        loading_block_id = None
+        assistant_block_id = None
+        current_prompt = prompt
+        current_model = model
+        real_thread_id = resume_session_id
+        codex_tool_blocks = {}
+        codex_tool_outputs = {}
+        codex_tool_result_blocks = {}
+        codex_thinking_blocks = {}
+        codex_plan_blocks = {}
+        deferred_pending = []
+
+        with _chat_lock:
+            existing = CHAT_SESSIONS.get(tab_id)
+            existing_queue = existing.get("message_queue", []) if existing else []
+            existing_sids = existing.get("socket_sids", set()) if existing else set()
+            CHAT_SESSIONS[tab_id] = {
+                "sdk_client": "codex-native",
+                "sdk_loop": loop,
+                "sdk_queue": None,
+                "last_activity_ts": _time.time(),
+                "incoming_queue": incoming,
+                "process": None,
+                "socket_sids": existing_sids | ({sid} if sid else set()),
+                "blocks": [{"type": "user", "id": 0, "text": current_prompt, "files": []}],
+                "buffer": [],
+                "started": _time.time(),
+                "process_done": False,
+                "session_idle": False,
+                "claude_session_id": real_thread_id,
+                "message_queue": existing_queue,
+                "provider": "codex_native",
+            }
+            if sid:
+                SOCKET_TO_SESSIONS.setdefault(sid, set()).add(tab_id)
+
+        self._save_stream_state(tab_id, {
+            "tab_id": tab_id,
+            "session_id": real_thread_id,
+            "model": current_model,
+            "provider": "codex_native",
+            "started": _time.time(),
+        })
+        _broadcast_chat_state()
+
+        def _remove_loading_block():
+            nonlocal loading_block_id
+            if loading_block_id is not None:
+                self._block_update(tab_id, loading_block_id, {"type": "_removed"})
+                loading_block_id = None
+
+        def _last_block_index():
+            with _chat_lock:
+                sess = CHAT_SESSIONS.get(tab_id)
+                if sess:
+                    return len(sess.get("blocks", [])) - 1
+            return None
+
+        async def _on_text_delta(delta: str):
+            nonlocal assistant_block_id
+            _remove_loading_block()
+            if assistant_block_id is None:
+                self._block_add(tab_id, {"type": "assistant", "text": ""})
+                with _chat_lock:
+                    sess = CHAT_SESSIONS.get(tab_id)
+                    if sess:
+                        assistant_block_id = len(sess.get("blocks", [])) - 1
+            accumulated = ""
+            with _chat_lock:
+                sess = CHAT_SESSIONS.get(tab_id)
+                if sess and assistant_block_id is not None:
+                    blk = sess["blocks"][assistant_block_id]
+                    blk["text"] = blk.get("text", "") + delta
+                    accumulated = blk["text"]
+            if assistant_block_id is not None:
+                self._block_update(tab_id, assistant_block_id, {"text": accumulated})
+
+        async def _on_notification(msg: dict):
+            method = msg.get("method")
+            params = msg.get("params") or {}
+            if method == "turn/plan/updated":
+                _remove_loading_block()
+                self._block_add(tab_id, {"type": "plan", "active": True, "plan": params.get("plan") or []})
+            elif method == "item/plan/delta":
+                delta = str(params.get("delta") or "")
+                if delta:
+                    _remove_loading_block()
+                    item_id = str(params.get("itemId") or "plan")
+                    block_id = codex_plan_blocks.get(item_id)
+                    if block_id is None:
+                        self._block_add(tab_id, {"type": "plan", "active": False, "content": ""})
+                        block_id = _last_block_index()
+                        if block_id is not None:
+                            codex_plan_blocks[item_id] = block_id
+                    if block_id is not None:
+                        content = ""
+                        with _chat_lock:
+                            sess = CHAT_SESSIONS.get(tab_id)
+                            if sess and block_id < len(sess.get("blocks", [])):
+                                blk = sess["blocks"][block_id]
+                                blk["content"] = str(blk.get("content") or "") + delta
+                                content = blk["content"]
+                        self._block_update(tab_id, block_id, {"content": content[:5000]})
+            elif method in {"item/reasoning/summaryTextDelta", "item/reasoning/textDelta"}:
+                delta = str(params.get("delta") or "")
+                if delta:
+                    _remove_loading_block()
+                    item_id = str(params.get("itemId") or "reasoning")
+                    block_id = codex_thinking_blocks.get(item_id)
+                    if block_id is None:
+                        self._block_add(tab_id, {"type": "thinking", "text": "", "words": 0, "preview": ""})
+                        block_id = _last_block_index()
+                        if block_id is not None:
+                            codex_thinking_blocks[item_id] = block_id
+                    if block_id is not None:
+                        text = ""
+                        with _chat_lock:
+                            sess = CHAT_SESSIONS.get(tab_id)
+                            if sess and block_id < len(sess.get("blocks", [])):
+                                blk = sess["blocks"][block_id]
+                                blk["text"] = str(blk.get("text") or "") + delta
+                                text = blk["text"]
+                        self._block_update(tab_id, block_id, {
+                            "text": text[:5000],
+                            "words": len(text.split()),
+                            "preview": text[:60].replace("\n", " "),
+                        })
+            elif method == "thread/compacted":
+                _remove_loading_block()
+                self._block_add(tab_id, {
+                    "type": "compaction",
+                    "state": "done",
+                    "trigger": "auto",
+                })
+            elif method in {"warning", "guardianWarning", "deprecationNotice", "configWarning"}:
+                message = params.get("message") or params.get("text") or params.get("warning")
+                if message:
+                    self._block_add(tab_id, {"type": "error", "message": str(message), "subtype": method})
+            elif method == "model/rerouted":
+                target = params.get("model") or params.get("targetModel") or params.get("to")
+                reason = params.get("reason")
+                if target:
+                    self._block_add(tab_id, {
+                        "type": "rate_limit",
+                        "message": f"Codex rerouted model to {target}" + (f": {reason}" if reason else ""),
+                    })
+            elif method == "item/started":
+                item = params.get("item") or {}
+                tool_block = _codex_tool_use_block_from_item(item)
+                if tool_block:
+                    _remove_loading_block()
+                    tool_block["start_time"] = _time.time()
+                    tool_block["running"] = True
+                    self._block_add(tab_id, tool_block)
+                    with _chat_lock:
+                        sess = CHAT_SESSIONS.get(tab_id)
+                        if sess:
+                            key = tool_block.get("tool_use_id") or f"idx:{len(sess.get('blocks', [])) - 1}"
+                            codex_tool_blocks[key] = len(sess.get("blocks", [])) - 1
+            elif method in {"item/commandExecution/outputDelta", "item/fileChange/outputDelta"}:
+                delta = str(params.get("delta") or "")
+                item_id = str(params.get("itemId") or "")
+                if delta and item_id:
+                    _remove_loading_block()
+                    codex_tool_outputs[item_id] = codex_tool_outputs.get(item_id, "") + delta
+                    result_id = codex_tool_result_blocks.get(item_id)
+                    tool_name = "Bash" if "commandExecution" in method else "Edit"
+                    tool_input = {}
+                    tool_idx = codex_tool_blocks.get(item_id)
+                    with _chat_lock:
+                        sess = CHAT_SESSIONS.get(tab_id)
+                        if sess and tool_idx is not None and tool_idx < len(sess.get("blocks", [])):
+                            tool_blk = sess["blocks"][tool_idx]
+                            tool_name = tool_blk.get("tool") or tool_name
+                            tool_input = tool_blk.get("input") or {}
+                    if result_id is None:
+                        self._block_add(tab_id, {
+                            "type": "tool_result",
+                            "tool": tool_name,
+                            "tool_use_id": item_id,
+                            "input": tool_input,
+                            "content": "",
+                        })
+                        result_id = _last_block_index()
+                        if result_id is not None:
+                            codex_tool_result_blocks[item_id] = result_id
+                    if result_id is not None:
+                        self._block_update(tab_id, result_id, {"content": codex_tool_outputs[item_id][:2000]})
+            elif method == "item/completed":
+                item = params.get("item") or {}
+                tool_block = _codex_tool_use_block_from_item(item)
+                result_block = _codex_tool_result_block_from_item(item)
+                if tool_block and result_block:
+                    _remove_loading_block()
+                    key = tool_block.get("tool_use_id")
+                    done_id = codex_tool_blocks.get(key) if key else None
+                    if done_id is None:
+                        with _chat_lock:
+                            sess = CHAT_SESSIONS.get(tab_id)
+                            if sess:
+                                for idx in range(len(sess.get("blocks", [])) - 1, -1, -1):
+                                    blk = sess["blocks"][idx]
+                                    if blk.get("type") == "tool_use" and blk.get("running"):
+                                        done_id = idx
+                                        break
+                    if done_id is not None:
+                        patch = {
+                            "running": False,
+                            "duration_ms": tool_block.get("duration_ms"),
+                        }
+                        self._block_update(tab_id, done_id, patch)
+                    if (
+                        key
+                        and codex_tool_outputs.get(key)
+                        and result_block.get("content") in {"", "completed"}
+                    ):
+                        result_block["content"] = codex_tool_outputs[key][:2000]
+                    existing_result_id = codex_tool_result_blocks.get(key) if key else None
+                    if existing_result_id is not None:
+                        self._block_update(tab_id, existing_result_id, result_block)
+                    else:
+                        self._block_add(tab_id, result_block)
+                        if key:
+                            new_result_id = _last_block_index()
+                            if new_result_id is not None:
+                                codex_tool_result_blocks[key] = new_result_id
+
+        try:
+            await client.connect()
+            with _chat_lock:
+                if tab_id in CHAT_SESSIONS:
+                    CHAT_SESSIONS[tab_id]["process"] = client.proc
+
+            real_thread_id = await client.start_or_resume_thread(
+                real_thread_id,
+                cwd=codex_cwd,
+                developer_instructions=codex_developer_instructions,
+                approval_policy="never" if mode == "bypass" else None,
+            )
+            self._adopt_real_session_id(tab_id, real_thread_id, resume_session_id, current_prompt, current_model)
+
+            while True:
+                self._block_add(tab_id, {"type": "loading"})
+                with _chat_lock:
+                    sess = CHAT_SESSIONS.get(tab_id)
+                    loading_block_id = len(sess.get("blocks", [])) - 1 if sess else None
+
+                result = await client.run_turn(
+                    thread_id=real_thread_id,
+                    prompt=current_prompt,
+                    model=strip_native_codex_prefix(current_model),
+                    effort=effort,
+                    cwd=codex_cwd,
+                    mode=mode,
+                    on_text_delta=_on_text_delta,
+                    on_notification=_on_notification,
+                )
+                if loading_block_id is not None:
+                    self._block_update(tab_id, loading_block_id, {"type": "_removed"})
+                    loading_block_id = None
+
+                elapsed = int(_time.time() - CHAT_SESSIONS.get(tab_id, {}).get("started", _time.time()))
+                self._block_add(tab_id, {
+                    "type": "cost",
+                    "seconds": elapsed,
+                    "cost": 0,
+                    "session_id": result.thread_id,
+                    "subtype": "codex_native",
+                    "stop_reason": result.status,
+                    "usage": result.usage,
+                    "model": result.model,
+                    "model_usage": {},
+                    "permission_denials": [],
+                })
+                _write_result_to_jsonl(result.thread_id, 0, elapsed, result.model or current_model)
+
+                if deferred_pending:
+                    with _chat_lock:
+                        sess = CHAT_SESSIONS.get(tab_id)
+                        if sess:
+                            for blk in deferred_pending:
+                                blk["id"] = len(sess["blocks"])
+                                sess["blocks"].append(blk)
+                            restore_snap = list(sess["blocks"])
+                            restore_sids = set(sess.get("socket_sids", set()))
+                        else:
+                            restore_snap = None
+                            restore_sids = set()
+                    if restore_snap is not None:
+                        for rsid in restore_sids:
+                            try:
+                                socketio.emit("realtime_snapshot", {
+                                    "blocks": restore_snap,
+                                    "streaming": True,
+                                    "queue": [],
+                                    "tab_id": tab_id,
+                                }, namespace="/chat", to=rsid)
+                            except Exception:
+                                pass
+                    deferred_pending = []
+
+                next_msg = None
+                with _chat_lock:
+                    sess = CHAT_SESSIONS.get(tab_id)
+                    if sess and sess.get("message_queue"):
+                        next_msg = sess["message_queue"].pop(0)
+                    elif sess:
+                        sess["session_idle"] = True
+                        sess["last_activity_ts"] = _time.time()
+                self._emit_buffered(tab_id, "realtime_done", {"has_next": bool(next_msg)})
+                self._emit_queue_update(tab_id)
+                _broadcast_chat_state()
+
+                if not next_msg:
+                    try:
+                        next_msg = await asyncio.wait_for(incoming.get(), timeout=self.PERSISTENT_IDLE_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        app.logger.info(f"Native Codex idle timeout for tab {tab_id[:12]}")
+                        break
+                    if next_msg is None:
+                        break
+
+                current_prompt = next_msg["prompt"]
+                current_model = next_msg.get("model") or current_model
+                if not is_native_codex_model(current_model):
+                    raise CodexNativeError("Cannot switch an active native Codex session to a non-codex model")
+                assistant_block_id = None
+                reorder_snap = None
+                reorder_sids = set()
+                with _chat_lock:
+                    sess = CHAT_SESSIONS.get(tab_id)
+                    if sess:
+                        sess["session_idle"] = False
+                        blocks = sess.get("blocks", [])
+                        first_pending_idx = None
+                        deferred_pending = []
+                        for idx, blk in enumerate(blocks):
+                            if blk.get("type") == "user" and blk.get("pending"):
+                                first_pending_idx = idx
+                                break
+                        if first_pending_idx is not None:
+                            blocks[first_pending_idx]["pending"] = False
+                            new_blocks = []
+                            for blk in blocks:
+                                if blk.get("type") == "user" and blk.get("pending"):
+                                    deferred_pending.append(blk)
+                                else:
+                                    new_blocks.append(blk)
+                            for i, blk in enumerate(new_blocks):
+                                blk["id"] = i
+                            sess["blocks"] = new_blocks
+                            reorder_snap = list(new_blocks)
+                            reorder_sids = set(sess.get("socket_sids", set()))
+                if reorder_snap is not None:
+                    for rsid in reorder_sids:
+                        try:
+                            socketio.emit("realtime_snapshot", {
+                                "blocks": reorder_snap,
+                                "streaming": True,
+                                "queue": [],
+                                "tab_id": tab_id,
+                            }, namespace="/chat", to=rsid)
+                        except Exception:
+                            pass
+                _broadcast_chat_state()
+        finally:
+            self._clear_stream_state(tab_id)
+            self._emit_buffered(tab_id, "realtime_done", {"has_next": False})
+            try:
+                await incoming.put(None)
+            except Exception:
+                pass
+            await client.close()
+            with _chat_lock:
+                if tab_id in CHAT_SESSIONS:
+                    CHAT_SESSIONS[tab_id]["process_done"] = True
+                    CHAT_SESSIONS[tab_id]["session_idle"] = False
+                    CHAT_SESSIONS[tab_id]["sdk_client"] = None
+                    CHAT_SESSIONS[tab_id]["sdk_loop"] = None
+                    CHAT_SESSIONS[tab_id]["process"] = None
+            _broadcast_chat_state()
 
     # Idle timeout for persistent sessions (seconds).
     # After this period with no new messages, the SDK process is shut down.
@@ -2477,12 +3575,7 @@ class ChatNamespace(Namespace):
                             next_msg = queue.pop(0)
                             app.logger.info(f"Next queued message for tab {tab_id[:12]}, {len(queue)} remaining")
 
-                for tsid in target_sids_for_done:
-                    try:
-                        socketio.emit("realtime_done", {"has_next": bool(next_msg), "tab_id": tab_id},
-                                      namespace="/chat", to=tsid)
-                    except Exception:
-                        pass
+                self._emit_buffered(tab_id, "realtime_done", {"has_next": bool(next_msg)})
 
                 if not next_msg:
                     # ── No queued messages. Wait for next user message. ──
@@ -2704,12 +3797,7 @@ class ChatNamespace(Namespace):
 
             # Emit final realtime_done (covers error/crash case;
             # normal flow already emitted from ResultMessage handler)
-            for tsid in target_sids_for_done:
-                try:
-                    socketio.emit("realtime_done", {"has_next": False, "tab_id": tab_id},
-                                  namespace="/chat", to=tsid)
-                except Exception:
-                    pass
+            self._emit_buffered(tab_id, "realtime_done", {"has_next": False})
 
             with _chat_ui_lock:
                 sess_data   = CHAT_SESSIONS.get(tab_id) if tab_id in CHAT_SESSIONS else None
@@ -2893,6 +3981,7 @@ class ChatNamespace(Namespace):
 
         # Check if this session is currently streaming under some tab_id
         streaming_tab_id = None
+        cached_blocks = []
         with _chat_lock:
             self._stop_watcher_for_socket_locked(sid)
             self._stop_watcher_for_session_locked(session_id)
@@ -2905,6 +3994,7 @@ class ChatNamespace(Namespace):
                     old_sess.get("socket_sids", set()).discard(sid)
             for tid, sess in CHAT_SESSIONS.items():
                 if sess.get("claude_session_id") == session_id or tid == session_id:
+                    cached_blocks = [dict(b) for b in sess.get("blocks", [])]
                     if _session_is_active(sess):
                         streaming_tab_id = tid
                         # Add this socket to the streaming session
@@ -2927,6 +4017,8 @@ class ChatNamespace(Namespace):
                 # All JSONL blocks are completed turns = history
                 # (current streaming turn lives only in CHAT_SESSIONS, not yet in JSONL)
                 history_blocks, history_model = self._build_blocks_from_jsonl(file_path)
+            elif real_claude_id:
+                history_blocks, history_model = _build_blocks_from_codex_thread(real_claude_id)
 
             with _chat_lock:
                 sess = CHAT_SESSIONS.get(streaming_tab_id)
@@ -2955,9 +4047,13 @@ class ChatNamespace(Namespace):
 
         # Not streaming - all blocks are history
         file_path = _find_session_file(session_id)
+        codex_blocks = []
+        codex_model = None
+        if not file_path:
+            codex_blocks, codex_model = _build_blocks_from_codex_thread(session_id)
 
         # Ghost session: no file on disk and not streaming -> notify frontend immediately
-        if not file_path:
+        if not file_path and not codex_blocks and not cached_blocks:
             # Check if there's a pending process that might create the file soon
             # (e.g. just-launched session). If not in CHAT_SESSIONS, it's truly dead.
             has_pending = False
@@ -2976,6 +4072,8 @@ class ChatNamespace(Namespace):
                 return
 
         blocks, detected_model = self._build_blocks_from_jsonl(file_path) if file_path else ([], None)
+        if not blocks and codex_blocks:
+            blocks, detected_model = codex_blocks, codex_model
         emit("watch_started", {"session_id": session_id})
         hist_data = {
             "blocks": blocks,
@@ -2984,14 +4082,36 @@ class ChatNamespace(Namespace):
         if detected_model:
             hist_data["model"] = detected_model
         emit("history_snapshot", hist_data)
+        cached_realtime_blocks = []
+        if cached_blocks:
+            cached_last_text = next(
+                (
+                    str(b.get("text") or "")
+                    for b in reversed(cached_blocks)
+                    if b.get("type") == "assistant" and b.get("text")
+                ),
+                "",
+            )
+            history_has_cached_text = bool(
+                cached_last_text
+                and any(
+                    b.get("type") == "assistant" and str(b.get("text") or "") == cached_last_text
+                    for b in blocks
+                )
+            )
+            if not history_has_cached_text:
+                cached_realtime_blocks = cached_blocks
         emit("realtime_snapshot", {
-            "blocks": [],
+            "blocks": cached_realtime_blocks,
             "streaming": False,
             "queue": [],
             "tab_id": session_id,
         })
 
         # Start file watcher for live updates (also handles file-not-yet-created)
+        if not file_path:
+            app.logger.info(f"Sent native Codex history_snapshot for session {session_id[:12]}, {len(blocks)} blocks")
+            return
         stop_event = threading.Event()
         initial_offset = os.path.getsize(file_path) if file_path else 0
         watcher = {
@@ -3400,6 +4520,22 @@ def api_sessions():
         # Enrich with registry metadata (type, job_id, source)
         from lib.session_registry import list_sessions as list_registry
         registry = {e["session_id"]: e for e in list_registry(limit=200)}
+        known_session_ids = {s.get("id") for s in sessions}
+        for sid, reg in registry.items():
+            if sid in known_session_ids:
+                continue
+            sessions.append({
+                "id": sid,
+                "project": "codex" if reg.get("source") == "dashboard" else "registry",
+                "date": reg.get("ts", ""),
+                "preview": reg.get("preview") or reg.get("job_id") or "(registered session)",
+                "messages": 0,
+                "is_active": False,
+                "type": reg.get("type"),
+                "job_id": reg.get("job_id"),
+                "source": reg.get("source"),
+                "model": reg.get("model"),
+            })
         for s in sessions:
             reg = registry.get(s["id"])
             if reg:
@@ -4236,6 +5372,8 @@ def api_chat_send():
     model = data.get("model")
     effort = data.get("effort", "high")
     files = data.get("files", [])
+    if model == "gpt-5.5":
+        model = "codex:gpt-5.5"
 
     if not prompt and not files:
         return jsonify({"error": "Empty prompt"}), 400
@@ -4253,7 +5391,7 @@ def api_chat_send():
         return jsonify({"ok": True, "routed": True})
 
     thread = threading.Thread(
-        target=_chat_ns._run_claude,
+        target=_chat_ns._run_codex_native if is_native_codex_model(model) else _chat_ns._run_claude,
         args=(None, prompt, tab_id, resume_session_id, model, effort),
         daemon=True
     )

@@ -533,7 +533,7 @@ export const INITIAL_STATE: ChatState = {
   sidebarFilter: ((): SidebarFilter => {
     const stored = localStorage.getItem('chat_sidebar_filter');
     if (stored === 'cron') return 'other';
-    return (stored === 'active' || stored === 'all' || stored === 'human' || stored === 'other') ? stored : 'all';
+    return (stored === 'active' || stored === 'all' || stored === 'human' || stored === 'other') ? stored : 'active';
   })(),
   wasConnected: false,
   reconnectAttempts: 0,

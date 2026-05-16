@@ -314,7 +314,7 @@ describe('ChatSidebar component', () => {
     vi.restoreAllMocks();
   });
 
-  test('filter buttons render with Active, All, Human, Cron', async () => {
+  test('filter buttons render with Active, All, Human, Other', async () => {
     await renderChat();
     const filterBtns = document.querySelectorAll('.chat-filter-btn');
     expect(filterBtns.length).toBe(4);
@@ -323,7 +323,7 @@ describe('ChatSidebar component', () => {
     expect(labels).toContain('Active');
     expect(labels).toContain('All');
     expect(labels).toContain('Human');
-    expect(labels).toContain('Cron');
+    expect(labels).toContain('Other');
   });
 
   test('active filter is selected by default', async () => {
@@ -549,16 +549,16 @@ describe('ChatSidebar - filter behavior', () => {
     expect(humanBtn.classList.contains('active')).toBe(true);
   });
 
-  test('switching to Cron filter changes active button', async () => {
+  test('switching to Other filter changes active button', async () => {
     await renderChat();
     const filterBtns = document.querySelectorAll('.chat-filter-btn');
-    const cronBtn = Array.from(filterBtns).find(b => b.textContent === 'Cron')!;
+    const otherBtn = Array.from(filterBtns).find(b => b.textContent === 'Other')!;
 
     await act(async () => {
-      fireEvent.click(cronBtn);
+      fireEvent.click(otherBtn);
     });
 
-    expect(cronBtn.classList.contains('active')).toBe(true);
+    expect(otherBtn.classList.contains('active')).toBe(true);
   });
 
   test('All filter shows "No sessions found" when empty', async () => {

@@ -39,8 +39,37 @@ def _prefix() -> str:
     return cfg.get("identity", {}).get("launchd_prefix", "com.local")
 
 
+def _allowed_prefixes() -> list[str]:
+    """Prefixes the daemons route is allowed to scan and address.
+
+    Some installs end up with both `com.vadims.*` and `com.local.*` plists side
+    by side (e.g. when the config was retroactively changed but the old
+    LaunchAgents never got booted-out). Restarting the prefix from config
+    alone in that situation targets the broken duplicate while the real
+    running process under the other prefix is untouched. Always include both
+    the configured prefix and the gateway's historical defaults so the UI
+    shows what's actually running.
+    """
+    cfg = _cfg.load()
+    extra = cfg.get("identity", {}).get("launchd_extra_prefixes", []) or []
+    seen: list[str] = []
+    for p in [_prefix(), "com.local", "com.vadims", *extra]:
+        if isinstance(p, str) and p and p not in seen:
+            seen.append(p)
+    return seen
+
+
 def _launchagents_dir() -> Path:
     return Path.home() / "Library" / "LaunchAgents"
+
+
+def _strip_prefix(label: str) -> str:
+    """Return the daemon's canonical name (label without its launchd prefix)."""
+    for p in _allowed_prefixes():
+        head = f"{p}."
+        if label.startswith(head):
+            return label[len(head):]
+    return label
 
 
 def _launchctl_list() -> str:
@@ -78,11 +107,12 @@ def _parse_status(dump: str, label: str) -> tuple[bool, int | None, int | None]:
 def _installed_plist(label: str) -> Path | None:
     """Return the resolved plist path if it's a valid installed daemon.
 
-    Guards against path traversal and against labels that don't match the
-    configured prefix. Returns None on any failure so callers can 404.
+    Guards against path traversal and against labels that don't match an
+    allowed prefix. Returns None on any failure so callers can 404.
     """
-    prefix = _prefix()
-    if not isinstance(label, str) or not label.startswith(f"{prefix}."):
+    if not isinstance(label, str):
+        return None
+    if not any(label.startswith(f"{p}.") for p in _allowed_prefixes()):
         return None
     la_dir = _launchagents_dir().resolve()
     plist = (la_dir / f"{label}.plist").resolve()
@@ -95,30 +125,59 @@ def _installed_plist(label: str) -> Path | None:
 
 @daemons_bp.route("/api/daemons", methods=["GET"])
 def list_daemons() -> Any:
-    """Return each installed daemon with its current load/pid state."""
-    prefix = _prefix()
+    """Return each installed daemon with its current load/pid state.
+
+    Scans every plist under every allowed prefix and dedups by canonical
+    daemon name (label minus prefix). When the same daemon exists under
+    two prefixes (a common drift scenario), the one with a live PID wins.
+    The non-running duplicate is surfaced separately as `duplicates` so the
+    UI can show a "stop / unload" hint without polluting the main list.
+    """
+    prefixes = _allowed_prefixes()
     la_dir = _launchagents_dir()
     if not la_dir.exists():
-        return jsonify({"daemons": [], "prefix": prefix,
+        return jsonify({"daemons": [], "prefix": _prefix(),
+                        "prefixes": prefixes,
+                        "duplicates": [],
                         "launch_agents_dir": str(la_dir)})
 
     dump = _launchctl_list()
-    daemons = []
-    for plist in sorted(la_dir.glob(f"{prefix}.*.plist")):
-        label = plist.stem
-        loaded, pid, last_exit = _parse_status(dump, label)
-        daemons.append({
-            "label": label,
-            "name": label.removeprefix(f"{prefix}."),
-            "path": str(plist),
-            "loaded": loaded,
-            "pid": pid,
-            "last_exit": last_exit,
-            "running": loaded and pid is not None,
-        })
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for prefix in prefixes:
+        for plist in sorted(la_dir.glob(f"{prefix}.*.plist")):
+            label = plist.stem
+            name = _strip_prefix(label)
+            loaded, pid, last_exit = _parse_status(dump, label)
+            entry = {
+                "label": label,
+                "name": name,
+                "prefix": prefix,
+                "path": str(plist),
+                "loaded": loaded,
+                "pid": pid,
+                "last_exit": last_exit,
+                "running": loaded and pid is not None,
+            }
+            by_name.setdefault(name, []).append(entry)
+
+    daemons: list[dict[str, Any]] = []
+    duplicates: list[dict[str, Any]] = []
+    for name in sorted(by_name):
+        entries = by_name[name]
+        # Prefer the entry with a live PID; ties broken by allowed-prefix order.
+        entries.sort(key=lambda e: (
+            0 if e["running"] else 1,
+            prefixes.index(e["prefix"]) if e["prefix"] in prefixes else 99,
+        ))
+        primary = entries[0]
+        daemons.append(primary)
+        for dup in entries[1:]:
+            duplicates.append(dup)
     return jsonify({
         "daemons": daemons,
-        "prefix": prefix,
+        "duplicates": duplicates,
+        "prefix": _prefix(),
+        "prefixes": prefixes,
         "launch_agents_dir": str(la_dir),
     })
 
@@ -137,7 +196,7 @@ def restart_daemon(label: str) -> Any:
                         "error": f"daemon {label!r} not installed"}), 404
 
     service = f"gui/{os.getuid()}/{label}"
-    is_self = label.endswith(".webhook-server")
+    is_self = _strip_prefix(label) == "webhook-server"
 
     if is_self:
         # Detach: new session, no stdio, small sleep so the 200 returns first.

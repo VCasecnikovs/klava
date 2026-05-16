@@ -32,6 +32,75 @@ def client(app):
     return app.test_client()
 
 
+def _write_plist(tmp_path: Path, label: str) -> None:
+    (tmp_path / f"{label}.plist").write_text(
+        "<?xml version='1.0'?><plist><dict></dict></plist>"
+    )
+
+
+class TestDaemonApi:
+    def test_filters_removed_telegram_daemon(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr("routes.dashboard_api._LAUNCH_AGENTS_DIR", tmp_path)
+        monkeypatch.setattr("routes.dashboard_api._cfg.launchd_prefix",
+                            lambda: "com.vadims")
+        monkeypatch.setattr("routes.dashboard_api._daemon_state",
+                            lambda label: {"loaded": True, "running": True,
+                                           "pid": 42, "last_exit": 0})
+        _write_plist(tmp_path, "com.vadims.tg-gateway")
+        _write_plist(tmp_path, "com.vadims.telegram-daemon")
+
+        resp = client.get("/api/daemons")
+        data = resp.get_json()
+        names = {d["name"] for d in data["daemons"]}
+
+        assert resp.status_code == 200
+        assert "tg-gateway" in names
+        assert "telegram-daemon" not in names
+
+    def test_filters_unrelated_local_agents(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr("routes.dashboard_api._LAUNCH_AGENTS_DIR", tmp_path)
+        monkeypatch.setattr("routes.dashboard_api._cfg.launchd_prefix",
+                            lambda: "com.vadims")
+        monkeypatch.setattr("routes.dashboard_api._daemon_state",
+                            lambda label: {"loaded": True, "running": True,
+                                           "pid": 42, "last_exit": 0})
+        _write_plist(tmp_path, "com.vadims.tg-gateway")
+        _write_plist(tmp_path, "com.local.claude-code-proxy")
+
+        resp = client.get("/api/daemons")
+        data = resp.get_json()
+        names = {d["name"] for d in data["daemons"]}
+
+        assert resp.status_code == 200
+        assert "tg-gateway" in names
+        assert "claude-code-proxy" not in names
+
+    def test_prefers_running_duplicate_prefix(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr("routes.dashboard_api._LAUNCH_AGENTS_DIR", tmp_path)
+        monkeypatch.setattr("routes.dashboard_api._cfg.launchd_prefix",
+                            lambda: "com.vadims")
+        _write_plist(tmp_path, "com.vadims.tg-gateway")
+        _write_plist(tmp_path, "com.local.tg-gateway")
+
+        def fake_state(label: str):
+            if label == "com.local.tg-gateway":
+                return {"loaded": True, "running": True, "pid": 99,
+                        "last_exit": 0}
+            return {"loaded": True, "running": False, "pid": None,
+                    "last_exit": 1}
+
+        monkeypatch.setattr("routes.dashboard_api._daemon_state", fake_state)
+
+        resp = client.get("/api/daemons")
+        data = resp.get_json()
+        row = next(d for d in data["daemons"] if d["name"] == "tg-gateway")
+
+        assert resp.status_code == 200
+        assert row["label"] == "com.local.tg-gateway"
+        assert row["pid"] == 99
+        assert data["duplicates"][0]["label"] == "com.vadims.tg-gateway"
+
+
 SAMPLE_BACKLOG = """# Self-Evolve Backlog
 
 ## Metrics

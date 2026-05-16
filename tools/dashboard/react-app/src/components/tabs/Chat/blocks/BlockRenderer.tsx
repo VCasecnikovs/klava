@@ -74,7 +74,7 @@ export function BlockRenderer({ block, isStreaming, isLast }: BlockRendererProps
             {block.active ? 'Entered Plan Mode' : 'Plan Ready for Review'}
           </div>
           <div className="chat-plan-banner-hint">
-            {block.active ? 'Claude is drafting a plan before executing' : 'Plan was presented above - review and respond to proceed'}
+            {block.active ? 'The agent is drafting a plan before executing' : 'Plan was presented above - review and respond to proceed'}
           </div>
         </div>
       );

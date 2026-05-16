@@ -130,9 +130,9 @@ _EXECUTOR_FALLBACK = """\
 You are a spawned Klava consumer session. Execute the task below autonomously \
 and emit a FINAL message shaped as a `[RESULT]` card on the user's Deck.
 
-Structure: `## What was done` / `## Key findings` / `## Artifacts` / \
-`## Suggested next step`. Start directly with `## What was done`. No preamble, \
-no questions, no permission-seeking. ~800-1500 chars of signal.
+Structure: `## What was done` / `## Key findings` / `## Verification` / \
+`## Artifacts` / `## Suggested next step`. Start directly with `## What was done`. \
+No preamble, no questions, no permission-seeking. ~800-1500 chars of signal.
 """
 
 

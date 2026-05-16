@@ -8,21 +8,19 @@ import { ContextUsage } from './blocks/ContextUsage';
 import { ScopePicker } from './ScopePicker';
 import type { Skill } from '@/api/types';
 
-// Proxy-routed models (gpt-*, kimi-*) go through claude-code-proxy -> Codex/Kimi
-// subscription, NOT the Anthropic API. Codex caps GPT-5.5 at 272K input despite
-// the model card listing 1M -- the [1m] tag is API-only. Don't expose it here;
-// the gateway preflight refuses oversized sessions before they hit Codex's
-// "input exceeds context window" error.
+// Plain GPT-5.5 in the selector uses native Codex, not claude-code-proxy.
+// Other gpt-* options below remain proxy-routed.
 const MODEL_OPTIONS = [
   { value: 'opus',              label: 'Opus 4.7' },
+  { value: 'codex:gpt-5.5',     label: 'GPT-5.5 \u00b7 272K' },
   { value: 'opus[1m]',          label: 'Opus 4.7 \u00b7 1M' },
   { value: 'sonnet',            label: 'Sonnet 4.6' },
   { value: 'sonnet[1m]',        label: 'Sonnet 4.6 \u00b7 1M' },
   { value: 'haiku',             label: 'Haiku 4.5' },
-  { value: 'gpt-5.5',           label: 'GPT-5.5 \u00b7 272K' },
   { value: 'gpt-5.4',           label: 'GPT-5.4 \u00b7 272K' },
   { value: 'gpt-5.3-codex',     label: 'GPT-5.3 Codex \u00b7 272K' },
   { value: 'gpt-5.4-mini',      label: 'GPT-5.4 mini \u00b7 272K' },
+  { value: 'codex:gpt-5.4',     label: 'Codex native GPT-5.4' },
 ];
 
 const EFFORT_OPTIONS = [
