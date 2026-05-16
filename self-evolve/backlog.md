@@ -5,14 +5,30 @@
 <!-- Dislike capture: when user expresses frustration, session context → here -->
 
 ## Metrics
-- Items added (30d): 194
-- Items fixed (30d): 105
+- Items added (30d): 196
+- Items fixed (30d): 106
 - Avg days open: 0
-- Last run: 2026-05-15 (17:45 UTC)
+- Last run: 2026-05-16 (17:45 UTC)
 
 ---
 
 ## Items
+
+### [2026-05-16] heartbeat max_turns 50→60 - turns=51 failure still occurring
+- **source:** self-evolve CRON analysis
+- **priority:** low
+- **status:** done
+- **seen:** 1
+- **description:** Heartbeat hit turns=51 with max_turns=50 (bumped to 50 yesterday from 40). "Unknown error (turns=51)" appeared in today's CRON failures. Same recurring pattern — heartbeat grows its context on busy days.
+- **resolved:** 2026-05-16 Bumped max_turns 50→60 in ~/.klava/jobs.json (hot-reload)
+
+### [2026-05-16] "Timeout after 5s" = recovery sentinel - misleading error blocks CRON retry
+- **source:** self-evolve code scan
+- **priority:** medium
+- **status:** proposed
+- **seen:** 1
+- **description:** When a job process dies before producing any output (startup failure, OS kill during init), `_recover_single_job` is called with `timeout=5`. This calls `wait_for_result(timeout=5)` which returns `"Timeout after 5s"` after failing to find output files. `_is_retryable_error("Timeout after 5s")` returns False (treats it as real session timeout), so no CRON retry is scheduled. But these cases (pulse at 18:17 May 15, self-evolve at 11:31 May 16) are startup failures, not session timeouts - they SHOULD be retried. The misleading error message also makes diagnosis harder.
+- **fix-hint:** In `_is_retryable_error`: add check for small timeout value (< 60s = recovery sentinel): `re.search(r"timeout after (\d+)s", err)` → if N < 60, treat as transient. OR: in `_recover_single_job` for dead-process case (timeout=5), return a different error string like "Process died early (no output)" that's explicitly retryable. File: `gateway/cron-scheduler.py:1760, 976`. Risk: MEDIUM (gateway code).
 
 ### [2026-05-15] API outage cascades - 15 heartbeat failures, 0-cost zombies persist 50+ min
 - **source:** self-evolve CRON analysis
