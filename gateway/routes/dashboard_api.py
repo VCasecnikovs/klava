@@ -213,6 +213,13 @@ def api_claude_subagent_messages(session_id: str, subagent_id: str):
 # ------------------------------------------------------------------
 
 _LAUNCH_AGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
+_GATEWAY_DAEMON_NAMES = {
+    "cron-scheduler",
+    "cron-watchdog",
+    "tg-gateway",
+    "vadimgest-dashboard",
+    "webhook-server",
+}
 _DEPRECATED_DAEMON_NAMES = {"telegram-daemon"}
 
 
@@ -239,7 +246,10 @@ def _installed_plists() -> list[Path]:
     plists: dict[str, Path] = {}
     for prefix in _launchd_prefixes():
         for plist in _LAUNCH_AGENTS_DIR.glob(f"{prefix}.*.plist"):
-            if _daemon_name(plist.stem) in _DEPRECATED_DAEMON_NAMES:
+            name = _daemon_name(plist.stem)
+            if name in _DEPRECATED_DAEMON_NAMES:
+                continue
+            if name not in _GATEWAY_DAEMON_NAMES:
                 continue
             plists[plist.stem] = plist
     return sorted(plists.values())
