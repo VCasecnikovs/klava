@@ -1270,8 +1270,8 @@ function ChatMain({ onToggle, onFullscreen, isFullscreen, panelWidth }: { onTogg
           )}
           {showWelcome ? (
             <div className="chat-welcome">
-              <div className="chat-welcome-title">Claude Code</div>
-              <div className="chat-welcome-sub">Start a new conversation</div>
+              <div className="chat-welcome-title">Klava</div>
+              <div className="chat-welcome-sub">Start a new run</div>
             </div>
           ) : showLoading ? (
             <div className="chat-loading" style={{ justifyContent: 'center', padding: '40px' }}>

@@ -180,7 +180,7 @@ export function ChatSidebar({ onResumeSession, onNewSession }: ChatSidebarProps)
   const showRemove = sidebarFilter === 'active';
 
   const filterBar = (
-    <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+    <div className="chat-filter-bar">
       {(['active', 'all', 'human', 'other'] as SidebarFilter[]).map(f => (
         <button
           key={f}
@@ -195,25 +195,12 @@ export function ChatSidebar({ onResumeSession, onNewSession }: ChatSidebarProps)
   );
 
   const searchBar = (
-    <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+    <div className="chat-sidebar-search">
       <input
         type="text"
         placeholder="Search sessions..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        style={{
-          width: '100%',
-          background: 'var(--bg)',
-          color: 'var(--text)',
-          border: '1px solid var(--border)',
-          borderRadius: 4,
-          padding: '4px 8px',
-          fontSize: 12,
-          outline: 'none',
-          boxSizing: 'border-box',
-        }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--blue)'; }}
-        onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
       />
     </div>
   );

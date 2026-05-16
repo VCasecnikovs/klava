@@ -632,7 +632,7 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps) {
         <textarea
           ref={inputRef}
           className={`chat-input${expanded ? ' expanded' : ''}`}
-          placeholder={expanded ? 'Compose your message... (\u2318Enter to send, Esc to collapse)' : 'Message Claude... (\u2318Enter for newline)'}
+          placeholder={expanded ? 'Write to Klava... (\u2318Enter to send, Esc to collapse)' : 'Message Klava... (\u2318Enter for newline)'}
           rows={expanded ? 10 : 1}
           value={localDraft}
           onChange={handleInput}

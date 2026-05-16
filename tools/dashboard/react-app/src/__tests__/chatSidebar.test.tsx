@@ -262,19 +262,16 @@ describe('ChatSidebar', () => {
       expect(mockApi.sessionsSearch).not.toHaveBeenCalled();
     });
 
-    test('search input focus changes border color', () => {
+    test('search input has CSS focus styling hook', () => {
       renderSidebar();
       const input = document.querySelector('input[placeholder="Search sessions..."]') as HTMLInputElement;
-      fireEvent.focus(input);
-      expect(input.style.borderColor).toBe('var(--blue)');
+      expect(input.closest('.chat-sidebar-search')).toBeInTheDocument();
     });
 
-    test('search input blur restores border color', () => {
+    test('search input no longer uses inline border styling', () => {
       renderSidebar();
       const input = document.querySelector('input[placeholder="Search sessions..."]') as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.blur(input);
-      expect(input.style.borderColor).toBe('var(--border)');
+      expect(input.style.borderColor).toBe('');
     });
   });
 

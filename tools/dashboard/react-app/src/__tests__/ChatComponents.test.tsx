@@ -136,7 +136,7 @@ describe('ChatInput component', () => {
     await renderChat();
     const textarea = document.querySelector('.chat-input') as HTMLTextAreaElement;
     expect(textarea).toBeInTheDocument();
-    expect(textarea.placeholder).toMatch(/^Message Claude\.\.\./);
+    expect(textarea.placeholder).toMatch(/^Message Klava\.\.\./);
   });
 
   test('typing updates the textarea value', async () => {
