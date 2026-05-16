@@ -980,9 +980,18 @@ class JobManager:
         a session that exhausted its wall-clock budget once will almost always
         exhaust it again, and each retry costs another session launch + context
         load. Let the scheduled cadence pick up the next run instead.
+
+        Exception: small N (<60s) is a recovery sentinel, not a real budget.
+        ``_recover_orphaned_foreground_jobs`` calls ``wait_for_result(timeout=5)``
+        for dead processes that died before producing output (startup failure,
+        OS kill during init). That path is transient and should retry.
+        Regression: 2026-05-16 self-evolve "Timeout after 5s" dur=10s skipped retry.
         """
         err = (error or "").lower()
         if "timeout after" in err:
+            m = re.search(r"timeout after (\d+)s", err)
+            if m and int(m.group(1)) < 60:
+                return True
             return False
         retryable_patterns = [
             "TimeoutError",
