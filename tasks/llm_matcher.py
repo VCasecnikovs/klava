@@ -13,6 +13,15 @@ Architecture:
   is high.
 - Default-on. If `claude` CLI is missing, hits the API timeout, or returns
   garbage, we return [] and the caller falls back to token similarity.
+
+Regression: 2026-05-16 — `create_proposal()` for the max+Mahir contract
+counter-positions was deduped into a stale unrelated proposal about
+Mahir's index.build.ai demo UI decision. Same root cause as the
+2026-05-14 commission-agreement merge: the prompt told the model that
+"different actions on the same target" = same topic, where it treated
+"target" as entity. We now scope same-topic to same *concrete artifact*
+(specific document, decision, meeting, thread). Entity name overlap is
+explicitly insufficient.
 """
 
 import os
@@ -34,9 +43,16 @@ MAX_CANDIDATES = 40  # cap input size; older candidates trimmed by caller
 
 PROMPT_TEMPLATE = """You are a task-deduplication classifier. I'll show you ONE new task title and a numbered list of EXISTING task titles. Return the numbers of existing tasks that are about THE SAME TOPIC as the new task.
 
-Same topic = same person, deal, event, system component, or issue — even if they describe different stages (draft / review / approve / send) or different actions on the same target.
+Same topic = same concrete artifact, decision, or thread. A "concrete artifact" is the specific thing being acted on — a particular contract document, a particular meeting, a particular UI/feature decision, a particular reply thread, a particular code review.
 
-Different topic = different person, different deal, different system component. A single shared word like "review" or a shared organization name on unrelated work is NOT enough. Two cards about Astrum can be different topics if they're about different PRs or features.
+Different stages of the SAME artifact (draft / review / approve / send / counter / sign) ARE same topic. Example: "Draft NCNDA for Eldil" and "Sign Eldil NCNDA on DocuSign" — same artifact (the NCNDA document), different stages, MATCH.
+
+Different artifacts on the SAME entity are DIFFERENT topics, even when person/org names overlap. Examples:
+  - "Mahir — decide demo UI style for index.build.ai" vs "Mahir — send contract counter-positions on Redline V1" → DIFFERENT (one is a UI decision, the other is contract negotiation).
+  - "Astrum — review PR for limit orders" vs "Astrum — draft marketing strategy" → DIFFERENT (different work streams).
+  - "Wallet — tech call agenda" vs "Wallet — review NDA exhibit C" → DIFFERENT (call prep vs legal document).
+
+A shared word like "review", a shared organization name, or a shared person name on otherwise unrelated work is NOT enough. When unsure whether two cards target the same concrete artifact, choose DIFFERENT. False merges destroy real work; false splits cost nothing but a duplicate row.
 {aliases_block}
 Output format: comma-separated numbers only, e.g. "2,5,7". If nothing matches, output the single word NONE. Output nothing else — no prose, no explanation.
 

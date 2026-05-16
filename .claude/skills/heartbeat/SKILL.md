@@ -216,6 +216,24 @@ Typical connections:
 
 If you see a connection - record via `[[wikilinks]]` in the knowledge base. Every found connection = value.
 
+### Sender disambiguation (when names collide)
+
+**Before composing a task title or picking a scope, identify the sender from the source URI, not from name-token similarity to known deals.** Names collide all the time — Klava already has notes for `max (Mahir Bansal intro)` *and* `Maksim Linichenko (Wallet)` *and* a dozen `Max*` / `Maxim*` people. Routing a Signal message from one to a deal hub belonging to another corrupts both the deal note and the executor's downstream work.
+
+**Resolution order** for every incoming message:
+
+1. **Source URI tells you who sent it.** Signal messages carry the sender's profile name and serviceId; Telegram carries a chat_id and username; Hlopya carries the participant list. Read it from the vadimgest row, don't infer from the body.
+2. **Resolve to the canonical People note** by matching the strongest identifier you have, in this order:
+   - Signal `serviceId` matches the `signal:` line in People frontmatter.
+   - 1:1 chat / group name matches the People note's `met:` or note body (e.g. group "max <> vadims" → `max (Mahir Bansal intro).md`).
+   - Telegram username, phone, or email matches the frontmatter `handle:` / `phone:` / `email:`.
+   - File-basename match — last resort, and only when the basename uniquely identifies the person (`Maksim Linichenko (Wallet).md` for the literal string "Maksim Linichenko"). Bare first names (`max`, `Maxim`, `Sasha`) are NEVER unique enough to resolve.
+3. **Pick the deal scope from the resolved People note's backlinks**, not from a substring match of the deal hub's `key_people`. The People note's `## See also` / wikilinks tell you which deal this person belongs to. If the People note has no deal backlinks, the message likely doesn't belong to any deal scope.
+
+**Ambiguity → `[CLARIFY]`, not a guess.** If two People notes share a token and you cannot pick one with confidence (no serviceId, no group-name match, no unique handle), do not assume. Create a `[CLARIFY]` task with the source URI, the candidate People notes, and the message excerpt, and let Vadim resolve. A misroute corrupts a deal note; a CLARIFY costs ten seconds of Vadim's time.
+
+Regression: 2026-05-16 — heartbeat processed a Signal message from `max (Mahir Bansal intro)` (serviceId `9c4a3102-…`) about the max+Mahir Bansal Data Brokerage contract, but matched on the string "Maksim" / "contract redlines" against the Wallet (TON) hub's `key_people` and dispatched a task titled `[DEAL] Wallet — review contract redlines…`. The task's body even cited the wrong People note. The fix: read the Signal sender from the source URI, resolve to `max (Mahir Bansal intro).md` via serviceId + group naming, and route to `Vox Lab/Deals/max + Mahir Bansal/` — the scope the People note backlinks to.
+
 ---
 
 ## Phase 3: EXECUTE
@@ -226,7 +244,7 @@ Use the appropriate recipe based on what Phase 2 identified. One conversation gr
 
 **DEAL:**
 1. Read deal note from your deals folder
-2. Match message to deal by company name, person name, product, or topic
+2. Match message to deal — first resolve the sender via the **Sender disambiguation** rule above (source URI → People note → deal backlink), THEN cross-check by company name, product, or topic. Never match deal-by-token alone when name collisions are plausible (most first names are not unique).
 3. Update deal note — write through the **STATE+LOG WRITEBACK** recipe below:
    - **Log:** prepend a new `### YYYY-MM-DD — {event title}` entry to `## Log` with `src:`, `mentions:`, `summary`, `facts-touched:`. Always newest-first.
    - **State:** for each fact in `facts-touched`, update the matching `## State` bullet — replace the value AND the `src:` to point at the new event's source URI. Use real URIs (`signal://...`, `hlopya://...`, `gmail://...`), never `frontmatter`.

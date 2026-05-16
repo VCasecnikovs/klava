@@ -1616,6 +1616,131 @@ class TestLLMMatcherUnit:
         out = llm_matcher.topic_matches_llm("topic", [])
         assert out == []
 
+    def test_prompt_distinguishes_artifact_from_entity(self):
+        """The dedup prompt must explicitly reject entity-only matches.
+
+        Regression: 2026-05-16 (max + Mahir Bansal). Two proposals that
+        shared only an entity name (Mahir) were merged because the
+        prompt said "different actions on the same target" = same topic.
+        The prompt now scopes same-topic to a concrete artifact, and
+        states explicitly that shared person/org names alone do not
+        warrant a merge. The contract is encoded in the prompt template;
+        this test guards against a regression of the prompt wording.
+        """
+        from tasks import llm_matcher
+
+        text = llm_matcher.PROMPT_TEMPLATE.lower()
+        assert "concrete artifact" in text, (
+            "prompt must scope same-topic to a concrete artifact, not entity"
+        )
+        # The "different artifacts on same entity = DIFFERENT" rule is the
+        # exact regression guard.
+        assert (
+            "different artifacts on the same entity are different topics"
+            in text
+        ), "prompt must reject entity-only matches"
+        # Shared name alone insufficient.
+        assert "shared person name" in text or "shared organization name" in text, (
+            "prompt must call out that a shared person/org name is not enough"
+        )
+
+    def test_collision_titles_send_strict_prompt(self, monkeypatch, tmp_path):
+        """End-to-end: when the matcher runs against the real collision
+        pair, the prompt it ships to the CLI carries the strict rules.
+
+        We don't call `claude` for real (subprocess is stubbed), but we
+        intercept the command and assert the prompt body contains the
+        regression guards. Returning NONE is the correct behavior the
+        prompt is steering toward.
+        """
+        from tasks import llm_matcher
+
+        monkeypatch.setattr(llm_matcher, "CACHE_DIR", tmp_path)
+
+        captured = {}
+
+        class FakeResult:
+            returncode = 0
+            stdout = "NONE"
+            stderr = ""
+
+        def fake_run(cmd, *args, **kwargs):
+            captured["prompt"] = cmd[-1] if cmd else ""
+            return FakeResult()
+
+        monkeypatch.setattr(llm_matcher.subprocess, "run", fake_run)
+
+        new_title = (
+            "[PROPOSAL] max + Mahir Bansal — send post-call Signal + "
+            "counter-positions on Redline V1"
+        )
+        candidates = [(
+            "stale-proposal-id",
+            "[PROPOSAL] Mahir index.build.ai-style demo UI - decide before "
+            "building (commission % not locked)",
+        )]
+        out = llm_matcher.topic_matches_llm(new_title, candidates)
+
+        assert out == []  # NONE response → no merge
+        prompt = captured["prompt"].lower()
+        assert "concrete artifact" in prompt
+        assert "different artifacts on the same entity" in prompt
+
+
+# Regression for the 2026-05-16 incident: heartbeat created a [PROPOSAL] for
+# the max + Mahir Bansal contract counter-positions, and `create_proposal`
+# deduped it into a stale proposal about Mahir's index.build.ai demo UI
+# decision — completely different topic, same entity. The prompt fix is in
+# `llm_matcher.PROMPT_TEMPLATE`; this test asserts the integration: when the
+# LLM correctly returns NONE for two different-artifact-same-entity titles,
+# `create_proposal` mints a fresh row instead of returning the stale id.
+class TestEntityCollisionDoesNotMerge:
+    def _now_iso(self, hours_ago=0):
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    @patch("tasks.queue._run_gog")
+    @patch("tasks.queue.list_tasks")
+    def test_different_artifact_same_entity_creates_fresh_proposal(
+        self, mock_list, mock_gog, monkeypatch,
+    ):
+        from tasks.queue import create_proposal
+        from tasks import llm_matcher
+        stale = Task(
+            id="stale-prop-id",
+            title=(
+                "[PROPOSAL] Mahir index.build.ai-style demo UI - decide "
+                "before building (commission % not locked)"
+            ),
+            status="pending",
+            type="proposal",
+            created=self._now_iso(hours_ago=24),
+        )
+        mock_list.return_value = [stale]
+        # Strict prompt → LLM returns no match for an entity-only collision.
+        monkeypatch.setattr(
+            llm_matcher, "topic_matches_llm",
+            lambda new, candidates, **kw: [],
+        )
+        mock_gog.return_value = json.dumps({"task": {"id": "fresh-prop-id"}})
+
+        new_id = create_proposal(
+            title=(
+                "max + Mahir Bansal — send post-call Signal + counter-"
+                "positions on Redline V1"
+            ),
+            plan="## Plan\nDraft the counter-positions and send to max in Signal.",
+            shape="reply",
+            source="heartbeat",
+        )
+
+        assert new_id == "fresh-prop-id", (
+            "create_proposal must mint a fresh row when artifact differs, "
+            "even when entity overlaps"
+        )
+        add_calls = [c for c in mock_gog.call_args_list
+                     if len(c.args) > 1 and c.args[1] == "add"]
+        assert len(add_calls) == 1
+
 
 # In-place conversion: Deck's Delegate/Proposal flow mutates the dispatched
 # [ACTION] / [RESEARCH] row into a [RESULT] / [PROPOSAL] card keeping the same
