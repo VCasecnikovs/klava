@@ -28,8 +28,13 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from telethon import TelegramClient, functions
 from telethon.sessions import StringSession
 
-# Add lib to path for status collector
-sys.path.insert(0, str(Path(__file__).parent))
+# Add repo paths before importing local packages. launchd starts this script
+# with WorkingDirectory=gateway, so repo-root packages like tasks/ are not
+# otherwise importable.
+GATEWAY_DIR = Path(__file__).parent
+REPO_ROOT = GATEWAY_DIR.parent
+sys.path.insert(0, str(GATEWAY_DIR))
+sys.path.insert(0, str(REPO_ROOT))
 from lib.status_collector import collect_status
 from lib.main_session import (
     init_main_session, is_main_topic, get_main_session_id,
