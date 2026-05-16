@@ -1093,6 +1093,17 @@ class TestTimeoutNotRetryable:
     def test_timeout_error_uppercase(self, job_manager):
         assert job_manager._is_retryable_error("TIMEOUT AFTER 600s") is False
 
+    def test_recovery_sentinel_small_timeout_is_retryable(self, job_manager):
+        # Regression: 2026-05-16 self-evolve. _recover_orphaned_foreground_jobs
+        # calls wait_for_result(timeout=5) for dead processes, which produces
+        # "Timeout after 5s" - a recovery sentinel, not a real wall-clock budget
+        # exhaustion. Must be retryable so CRON retry fires.
+        assert job_manager._is_retryable_error("Timeout after 5s") is True
+        assert job_manager._is_retryable_error("Timeout after 30s") is True
+        # 60s is the cutoff - real budgets start at 60s.
+        assert job_manager._is_retryable_error("Timeout after 60s") is False
+        assert job_manager._is_retryable_error("Timeout after 600s") is False
+
 
 class TestAlertDedup:
     def test_duplicate_alerts_within_cooldown_suppressed(self, job_manager):
