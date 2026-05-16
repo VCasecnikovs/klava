@@ -103,13 +103,7 @@ function Dashboard() {
   const [pendingView, setPendingView] = useState<{ url?: string; filename?: string; title: string } | null>(null);
   const [chatMode, setChatMode] = useState<ChatMode>(() => {
     if (isMobile()) return 'collapsed';
-    try {
-      const saved = localStorage.getItem('chat-panel-mode');
-      if (saved === 'collapsed' || saved === 'sidebar' || saved === 'full') return saved;
-      // Migrate old boolean format
-      if (localStorage.getItem('chat-panel-open') === 'false') return 'collapsed';
-    } catch { /* ignore */ }
-    return 'sidebar';
+    return 'collapsed';
   });
   const [chatWidth, setChatWidth] = useState(() => {
     try {

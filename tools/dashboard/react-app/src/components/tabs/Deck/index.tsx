@@ -82,7 +82,7 @@ function timeAgo(dateStr: string | null | undefined): string {
 type CardAction =
   | 'done' | 'snooze' | 'shuffle' | 'skip'
   | 'approve' | 'reject'
-  | 'session'
+  | 'session' | 'codex'
   | 'execute' | 'research-more' | 'follow-up' | 'delegate' | 'proposal';
 // 'skip' is retained as an internal exit reason used by `advance()` — the
 // visible Skip button was retired April 2026 in favour of Done / Reject.
@@ -211,6 +211,15 @@ const DECK_ACTIONS: DeckActionDef[] = [
       submitLabel: 'Send follow-up',
       placeholder: 'What\'s next? e.g. "now draft the email to Bob."',
     },
+  },
+  {
+    id: 'codex',
+    icon: 'C',
+    label: 'Codex',
+    shortcut: 'C',
+    kinds: ['task', 'result', 'proposal'],
+    title: 'Open in Codex - creates a Klava session request, opens Codex Desktop, and copies the prompt.',
+    dispatch: { kind: 'action', action: 'codex' },
   },
   {
     id: 'session',
@@ -1091,6 +1100,38 @@ export function DeckTab() {
           window.dispatchEvent(new CustomEvent('chat:prefill-input', { detail: { text: prompt } }));
         }, 250);
         // Don't advance — the user may come back to finalize after chatting.
+      } else if (action === 'codex') {
+        const plainTitle = current.title.replace(/^\[[A-Z]+\]\s*/, '');
+        const res = await api.codexSessionRequest({
+          id: current.id,
+          card_id: current.id,
+          title: plainTitle,
+          body: current.body || '',
+          result: current.result || '',
+          proposal_plan: current.proposal_plan || '',
+          card_type: current.type || cardKind(current),
+          type: current.type,
+          scope: current.scope || null,
+          due: current._due || null,
+          overdue_days: current._overdue_days || null,
+        });
+        let browserCopied = false;
+        if (!res.copied && navigator.clipboard && res.prompt) {
+          try {
+            await navigator.clipboard.writeText(res.prompt);
+            browserCopied = true;
+          } catch (e) {
+            console.warn('Browser clipboard fallback failed:', e);
+          }
+        }
+        const copied = res.copied || browserCopied;
+        const status = [
+          res.opened ? 'Codex Desktop opened.' : `Codex open failed: ${res.open_error || 'unknown error'}.`,
+          copied ? 'Prompt copied.' : `Copy failed: ${res.copy_error || 'unknown error'}.`,
+          `Request: ${res.request.id}`,
+        ].join('\n');
+        alert(status);
+        // Don't advance - opening in Codex is discussion/work context, not completion.
       } else {
         // shuffle only — skip/done/snooze are handled above with backend
         // completion calls. shuffle stays local (moves the card down the pile).
@@ -1284,7 +1325,7 @@ export function DeckTab() {
         </span>
         <span className="deck-spacer" />
         <span className="deck-keyhint">
-          <kbd>/</kbd> search · <kbd>A</kbd> execute · <kbd>M</kbd> refine · <kbd>F</kbd> follow-up · <kbd>O</kbd> session · <kbd>K</kbd> delegate · <kbd>P</kbd> proposal · <kbd>D</kbd> done · <kbd>R</kbd> reject · <kbd>S</kbd> snooze · <kbd>H</kbd> shuffle
+          <kbd>/</kbd> search · <kbd>A</kbd> execute · <kbd>M</kbd> refine · <kbd>F</kbd> follow-up · <kbd>C</kbd> Codex · <kbd>O</kbd> session · <kbd>K</kbd> delegate · <kbd>P</kbd> proposal · <kbd>D</kbd> done · <kbd>R</kbd> reject · <kbd>S</kbd> snooze · <kbd>H</kbd> shuffle
         </span>
       </div>
 

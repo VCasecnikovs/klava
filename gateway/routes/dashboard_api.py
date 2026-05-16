@@ -25,6 +25,11 @@ from lib.klava_manager import (
     KLAVA_TASKS, register_task, list_running,
     build_klava_prompt, complete_task as klava_complete_task,
 )
+from lib.session_requests import (
+    copy_prompt_to_clipboard,
+    create_session_request,
+    open_codex_app,
+)
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
@@ -1210,6 +1215,43 @@ def api_klava_continue():
         return jsonify({"ok": True, "parent_id": card_id, "new_task_id": new_id, "mode": mode})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@dashboard_bp.route('/api/codex/session-requests', methods=['POST'])
+def api_codex_session_request():
+    """Create a Codex session request from Klava/Dashboard context.
+
+    This is the safe bridge from Dashboard to Codex Desktop. The current
+    Codex CLI exposes `codex app <path>` for opening a workspace, but not a
+    stable public "create UI thread with this prompt" contract. Until that
+    exists, store the request, copy the prompt, and open Codex at the project.
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        root = str(Path(__file__).parent.parent.parent)
+        cwd = (data.get("cwd") or root).strip() if isinstance(data.get("cwd") or root, str) else root
+        session_request = create_session_request(data, cwd=cwd)
+        copied, copy_error = copy_prompt_to_clipboard(session_request.prompt)
+        opened, open_error = open_codex_app(cwd)
+        return jsonify({
+            "ok": True,
+            "request": {
+                "id": session_request.id,
+                "title": session_request.title,
+                "created_at": session_request.created_at,
+                "cwd": session_request.cwd,
+                "card_id": session_request.card_id,
+                "card_type": session_request.card_type,
+                "scope": session_request.scope,
+            },
+            "prompt": session_request.prompt,
+            "copied": copied,
+            "copy_error": copy_error,
+            "opened": opened,
+            "open_error": open_error,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 def _launch_klava(task_id: str, title: str, body: str,

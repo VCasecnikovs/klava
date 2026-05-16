@@ -53,6 +53,39 @@ export interface ChatStateData {
   drafts?: Record<string, string>;
 }
 
+export interface CodexSessionRequestPayload {
+  id: string;
+  title: string;
+  body?: string;
+  result?: string;
+  proposal_plan?: string | null;
+  card_id?: string;
+  card_type?: string;
+  type?: string;
+  scope?: string | null;
+  due?: string | null;
+  overdue_days?: number | null;
+  source_uris?: string[];
+}
+
+export interface CodexSessionRequestResponse {
+  ok: boolean;
+  request: {
+    id: string;
+    title: string;
+    created_at: string;
+    cwd: string | null;
+    card_id: string | null;
+    card_type: string | null;
+    scope: string | null;
+  };
+  prompt: string;
+  copied: boolean;
+  copy_error?: string | null;
+  opened: boolean;
+  open_error?: string | null;
+}
+
 const BASE = '';
 
 async function apiFetch<T>(path: string): Promise<T> {
@@ -165,6 +198,8 @@ export const api = {
     apiFetch<{ ok: boolean; tokens: number; limit: number; percent: number | null; model: string; raw?: Record<string, unknown> }>(
       `/api/chat/context-usage?tab_id=${encodeURIComponent(tabId)}`
     ),
+  codexSessionRequest: (payload: CodexSessionRequestPayload) =>
+    apiPost('/api/codex/session-requests', payload) as Promise<CodexSessionRequestResponse>,
 
   // === Scopes ===
   scopes: () => apiFetch<{ scopes: string[] }>('/api/scopes'),
