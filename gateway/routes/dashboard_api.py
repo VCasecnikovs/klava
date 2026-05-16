@@ -213,13 +213,36 @@ def api_claude_subagent_messages(session_id: str, subagent_id: str):
 # ------------------------------------------------------------------
 
 _LAUNCH_AGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
+_DEPRECATED_DAEMON_NAMES = {"telegram-daemon"}
+
+
+def _launchd_prefixes() -> list[str]:
+    configured = _cfg.launchd_prefix()
+    prefixes: list[str] = []
+    for prefix in [configured, "com.local", "com.vadims"]:
+        if prefix and prefix not in prefixes:
+            prefixes.append(prefix)
+    return prefixes
+
+
+def _daemon_name(label: str) -> str:
+    for prefix in _launchd_prefixes():
+        head = prefix + "."
+        if label.startswith(head):
+            return label[len(head):]
+    return label
 
 
 def _installed_plists() -> list[Path]:
-    prefix = _cfg.launchd_prefix()
     if not _LAUNCH_AGENTS_DIR.is_dir():
         return []
-    return sorted(_LAUNCH_AGENTS_DIR.glob(f"{prefix}.*.plist"))
+    plists: dict[str, Path] = {}
+    for prefix in _launchd_prefixes():
+        for plist in _LAUNCH_AGENTS_DIR.glob(f"{prefix}.*.plist"):
+            if _daemon_name(plist.stem) in _DEPRECATED_DAEMON_NAMES:
+                continue
+            plists[plist.stem] = plist
+    return sorted(plists.values())
 
 
 def _daemon_state(label: str) -> dict:
@@ -270,20 +293,36 @@ _SELF_KILLING_SUFFIXES = {"webhook-server"}
 @dashboard_bp.route('/api/daemons', methods=['GET'])
 def api_daemons():
     prefix = _cfg.launchd_prefix()
-    daemons = []
+    prefixes = _launchd_prefixes()
+    by_name = {}
     for plist in _installed_plists():
         label = plist.stem
-        name  = label[len(prefix) + 1:] if label.startswith(prefix + ".") else label
+        name = _daemon_name(label)
         state = _daemon_state(label)
-        daemons.append({
+        row = {
             "label": label,
-            "name":  name,
-            "path":  str(plist),
+            "name": name,
+            "path": str(plist),
             **state,
-        })
+        }
+        by_name.setdefault(name, []).append(row)
+
+    daemons = []
+    duplicates = []
+    for name in sorted(by_name):
+        rows = by_name[name]
+        rows.sort(key=lambda row: (
+            0 if row.get("running") else 1,
+            prefixes.index(row["label"].rsplit(".", 1)[0])
+            if row["label"].rsplit(".", 1)[0] in prefixes else 99,
+        ))
+        daemons.append(rows[0])
+        duplicates.extend(rows[1:])
     return jsonify({
         "daemons":           daemons,
+        "duplicates":        duplicates,
         "prefix":            prefix,
+        "prefixes":          prefixes,
         "launch_agents_dir": str(_LAUNCH_AGENTS_DIR),
     })
 
