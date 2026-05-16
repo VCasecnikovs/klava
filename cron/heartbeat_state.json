@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-05-16T14:07:27.375151+00:00",
+  "last_run": "2026-05-16T14:35:42.785636+00:00",
   "reported": {
     "mercury_io_card_2026_05_08": "2026-05-09T00:25:13.203321+00:00",
     "dayflow_payment_settings_2026_05_08": "2026-05-09T00:25:13.203323+00:00",
@@ -502,11 +502,16 @@
     "gtask-result-klava-evidence-closer-20260516": "2026-05-16T13:34:52.469615+00:00",
     "gmail_misha_code_from_tg_20260516": "2026-05-16T14:07:27.375307+00:00",
     "gdrive_code_from_tg_9files_20260516": "2026-05-16T14:07:27.375309+00:00",
-    "gtask_result_aspect_health_gleb": "2026-05-16T14:07:27.375310+00:00"
+    "gtask_result_aspect_health_gleb": "2026-05-16T14:07:27.375310+00:00",
+    "gtask_proposal_dima_code_corpus_131m": "2026-05-16T14:35:42.785453+00:00"
   },
   "seen_cal_events": {
     "1c4u12nhafdncps57hm0nubeh7": true,
-    "eapj7fltsfdmcajdapau1nm9uk": true,
+    "eapj7fltsfdmcajdapau1nm9uk": {
+      "title": "Stay at Casa Loma Hotel",
+      "start": "2026-04-27",
+      "attendees": []
+    },
     "p8nig40lp8d5m75ebv0b4qu380": true,
     "06bh3bsm2apgumvpn73q21g347": true,
     "6go3gpj2c8r3gbb1cpgj2b9kcgrm2bb16spm2bb175hj4opk68p3gdj5ck_20260512": true,
@@ -619,6 +624,11 @@
     "cal_casecnikov_3b6sirdbh19pb84ld6eokck3t8": true,
     "cal_v_e85a5862ff504fc48b1bf4ae1879f972": true,
     "cal_vadims_d2ui1gna3r7iogt5g7ibb23ds5_20260527T160000Z": true,
-    "cal_vadims_7rb55kpm4b95ceihk6op3m3mlf_20260529T160000Z": true
+    "cal_vadims_7rb55kpm4b95ceihk6op3m3mlf_20260529T160000Z": true,
+    "4d0868h6o0bdlhou84hmvor52": {
+      "title": "\u0411\u0440\u0430\u0442\u0441\u043a\u0438\u0439 \u0441\u0438\u043d\u043a",
+      "start": "2026-05-16T08:00",
+      "attendees": []
+    }
   }
 }
