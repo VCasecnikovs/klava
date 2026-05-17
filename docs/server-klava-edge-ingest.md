@@ -3,6 +3,57 @@
 Goal: run Klava and canonical vadimgest on a private server while local Macs
 push events for sources that only exist locally.
 
+## Current Server Cutover
+
+Production Klava now runs on `codex-klava` / `bakeneko`.
+
+- Klava dashboard: `http://100.100.129.50:18788/dashboard`
+- Vadimgest dashboard and edge ingest: `http://100.100.129.50:8484`
+- Server repo: `/srv/codex-klava/repos/claude`
+- Server Obsidian vault: `/srv/codex-klava/data/MyBrain`
+- Server vadimgest data: `/srv/codex-klava/data/vadimgest`
+- Server Klava runtime data: `/srv/codex-klava/data/klava`
+
+The old Mac webhook dashboard on `:18788` should stay disabled after cutover.
+The Mac vadimgest dashboard on `127.0.0.1:8484` can stay enabled because it is
+the local Edge Sync control panel.
+
+## Source Ownership Matrix
+
+| Area | Owner | Notes |
+| --- | --- | --- |
+| Klava dashboard, Deck, Chat, approvals | Server | `klava-webhook.service` on systemd |
+| Klava cron scheduler and task consumer | Server | `klava-cron-scheduler.service`; Google Tasks is the queue |
+| Telegram gateway | Server | `klava-tg-gateway.service` |
+| Canonical vadimgest store and search | Server | Server receives edge batches and indexes canonical data |
+| Obsidian vault | Server plus Obsidian Sync | Server vault lives at `/srv/codex-klava/data/MyBrain` |
+| Google, GitHub, Nextcloud, task APIs | Server where possible | OAuth and CLIs are configured on the server |
+| iMessage, desktop/browser history, Dayflow, local app data | Mac edge agent | These depend on local macOS state and permissions |
+| WhatsApp, Signal, LinkedIn/browser-cookie sources | Mac edge by default | Move only if a headless/server-safe connector exists |
+| Attachments and large local files | Not V1 edge | V1 pushes normalized JSON records, not binary blobs |
+
+Server-side source sync jobs that depend on local desktop state should remain
+disabled. The Mac `com.vadimgest.edge-agent` owns local collection and upload.
+
+## Server Services
+
+```bash
+systemctl status klava-webhook klava-cron-scheduler klava-tg-gateway vadimgest-dashboard obsidian-headless-sync
+```
+
+The server uses systemd, not launchd. Codex and Klava context are installed for
+both `root` and `codex`:
+
+- `~/.codex/AGENTS.md`
+- `~/.codex/klava/`
+- `~/.codex/skills/`
+- `~/.claude/CLAUDE.md`
+- `~/.claude/MEMORY.md`
+- `~/.claude/skills`
+
+`AGENTS.md` also exists at `/srv/codex-klava/repos/claude/AGENTS.md` so Codex
+connections opened directly in the repo inherit the Klava-aligned profile.
+
 The server owns:
 
 - `klava-api`, Dashboard, Deck, tasks, runs, approvals
