@@ -59,6 +59,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+for _noisy_logger in ("httpx", "httpcore"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
 # Load config
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
