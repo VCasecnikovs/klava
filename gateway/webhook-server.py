@@ -800,6 +800,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 from routes.dashboard_api import dashboard_bp, init_dashboard_bp
 from routes.a2a import a2a_bp, init_a2a_bp
 from routes.agents import agents_bp
+from routes.hlopya import hlopya_bp
 from routes.wizard import wizard_bp
 from lib.auth import install_mutation_gate
 # NOTE: routes/daemons.py used to register /api/daemons + /api/daemons/<label>/
@@ -810,6 +811,7 @@ from lib.auth import install_mutation_gate
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(a2a_bp)
 app.register_blueprint(agents_bp)
+app.register_blueprint(hlopya_bp)
 app.register_blueprint(wizard_bp)
 
 # Auth gate for state-mutating verbs. Reads webhook.require_auth from
